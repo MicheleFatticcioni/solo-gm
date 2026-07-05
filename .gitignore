@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# PDF caricati dall'utente
+/storage/
 
 # vercel
 .vercel

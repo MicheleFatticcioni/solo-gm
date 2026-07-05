@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: solo-gm-postgres
+    environment:
+      POSTGRES_USER: sologm
+      POSTGRES_PASSWORD: sologm
+      POSTGRES_DB: sologm
+    # 5432-5436 sono occupate da altri progetti su questa macchina
+    ports:
+      - "5437:5432"
+    volumes:
+      - sologm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sologm -d sologm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  sologm_pgdata:

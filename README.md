@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Solo GM
 
-## Getting Started
+Web app personale, self-hosted in locale, che fa da **Game Master AI** per giochi di ruolo in solitaria. Carichi i PDF dei manuali, l'app li indicizza in un vector store e Claude conduce la partita in chat usando RAG sui manuali + memoria a lungo termine della campagna.
 
-First, run the development server:
+Dettagli architetturali completi in [`docs/00-architettura.md`](docs/00-architettura.md).
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Prerequisiti
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- Node.js versione indicata in [`.nvmrc`](.nvmrc) (`nvm use`)
+- Docker (per Postgres + pgvector)
+- Una API key Anthropic
+- Una API key Voyage AI (embeddings) — oppure Ollama in locale come alternativa
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Avvio
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Installa le dipendenze:
 
-## Learn More
+   ```bash
+   npm install
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+2. Avvia Postgres (con estensione pgvector):
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   ```bash
+   docker compose up -d
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+3. Copia `.env.example` in `.env.local` e compila le variabili:
 
-## Deploy on Vercel
+   ```bash
+   cp .env.example .env.local
+   ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+   Note:
+   - `AUTH_SECRET`: genera con `openssl rand -base64 32`.
+   - `APP_USER_EMAIL` / `APP_USER_PASSWORD`: credenziali dell'utente singolo creato dal seed.
+   - `ANTHROPIC_API_KEY`: per il GM e la summarization.
+   - `VOYAGE_API_KEY` (o `EMBEDDINGS_PROVIDER=ollama` + `OLLAMA_EMBED_MODEL`): per gli embeddings dei manuali.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+4. Applica le migrazioni e crea l'utente:
+
+   ```bash
+   npm run db:migrate
+   npm run db:seed
+   ```
+
+5. Avvia i due processi in sviluppo (in terminali separati):
+
+   ```bash
+   npm run dev      # Next.js — http://localhost:3000
+   npm run worker   # worker pg-boss (processing PDF, summarization)
+   ```
+
+6. Accedi su [http://localhost:3000](http://localhost:3000) con le credenziali del seed.
+
+## Script utili
+
+| Comando | Descrizione |
+|---|---|
+| `npm run dev` | Server Next.js in sviluppo |
+| `npm run worker` | Worker per job asincroni (upload PDF, summarization) |
+| `npm run build` / `npm run start` | Build e avvio in produzione |
+| `npm run db:generate` | Genera una nuova migrazione Drizzle da `src/db/schema.ts` |
+| `npm run db:migrate` | Applica le migrazioni al database |
+| `npm run db:seed` | Crea l'utente applicativo da `APP_USER_EMAIL`/`APP_USER_PASSWORD` |
+| `npm run test` | Esegue i test in `src/lib/*.test.ts` |
+| `npm run lint` | Lint del progetto |
+
+## Struttura
+
+Vedi la sezione "Struttura cartelle" in [`docs/00-architettura.md`](docs/00-architettura.md) e i documenti `docs/01..06` per il dettaglio di ciascun modulo.
