@@ -53,6 +53,29 @@ Dettagli architetturali completi in [`docs/00-architettura.md`](docs/00-architet
 
 6. Accedi su [http://localhost:3000](http://localhost:3000) con le credenziali del seed.
 
+## Condividere il progetto con un amico (senza esperienza tecnica)
+
+Tutto (app, worker, Postgres e Ollama per gli embedding) gira in Docker: il tuo amico non deve installare Node, Docker Desktop compreso, né sapere cosa sono API o container.
+
+**Cosa prepari tu prima di mandarglielo:**
+
+1. Scarica il progetto da GitHub (Code → Download ZIP) ed estrailo in una cartella.
+2. Crea un file `.env` nella cartella (copiando `.env.example`) e compila **tu** le parti tecniche:
+   - `AUTH_SECRET` (genera con `openssl rand -base64 32`)
+   - `EMBEDDINGS_PROVIDER=ollama`
+   - `OLLAMA_EMBED_MODEL=bge-m3` (o il modello che usi tu)
+   - `ANTHROPIC_API_KEY`: se gli dai la tua, tieni presente che l'uso verrà addebitato sul tuo account Anthropic — valuta se fargliene creare una sua.
+   - Lascia vuoti `APP_USER_EMAIL` e `APP_USER_PASSWORD`: sono le credenziali con cui lui accederà, gliele fai scegliere.
+3. Zippa la cartella (il file `.env` compilato incluso — su GitHub non ci va perché è nel `.gitignore`, quindi va passato a parte, es. per email o chat) e mandagliela.
+
+**Cosa fa lui:**
+
+1. Installa [Docker Desktop](https://www.docker.com/products/docker-desktop/) (installer grafico, come qualsiasi altro programma) e lo avvia.
+2. Estrae la cartella che gli hai mandato.
+3. Se ha lasciato vuote `APP_USER_EMAIL`/`APP_USER_PASSWORD` nel `.env`, apre quel file con il Blocco Note e sceglie email/password con cui accederà.
+4. Fa doppio click su `avvia.bat` e aspetta (la primissima volta scarica anche il modello AI locale per l'indicizzazione dei PDF, può richiedere qualche minuto): al termine si apre da solo il browser su `http://localhost:3000`.
+5. Per spegnere tutto, doppio click su `ferma.bat` — i dati (campagne, documenti) restano salvati e li ritrova al prossimo avvio.
+
 ## Script utili
 
 | Comando | Descrizione |

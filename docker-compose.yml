@@ -17,5 +17,76 @@ services:
       timeout: 5s
       retries: 10
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: solo-gm-ollama
+    volumes:
+      - sologm_ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Servizio "usa e getta": scarica il modello di embedding indicato in
+  # OLLAMA_EMBED_MODEL (una volta sola, poi resta nel volume sologm_ollama)
+  # e termina. app/worker aspettano che finisca con successo.
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-bge-m3}
+    entrypoint: ["sh", "-c", "ollama pull \"$$OLLAMA_EMBED_MODEL\""]
+
+  # Applica le migrazioni e crea l'utente applicativo, poi termina.
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://sologm:sologm@postgres:5432/sologm
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "npm run db:migrate && npm run db:seed"
+
+  app:
+    build: .
+    container_name: solo-gm-app
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://sologm:sologm@postgres:5432/sologm
+      OLLAMA_HOST: http://ollama:11434
+    ports:
+      - "3000:3000"
+    volumes:
+      - sologm_uploads:/app/storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      ollama-pull:
+        condition: service_completed_successfully
+    command: npm start
+
+  worker:
+    build: .
+    container_name: solo-gm-worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://sologm:sologm@postgres:5432/sologm
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - sologm_uploads:/app/storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      ollama-pull:
+        condition: service_completed_successfully
+    command: npm run worker
+
 volumes:
   sologm_pgdata:
+  sologm_ollama:
+  sologm_uploads:

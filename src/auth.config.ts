@@ -2,6 +2,9 @@ import type { NextAuthConfig } from "next-auth";
 
 // Config condivisa tra middleware (edge) e server: niente import del DB qui.
 export const authConfig = {
+  // Serve self-hosted (no Vercel): senza questo, `next start` in produzione
+  // rifiuta le richieste con UntrustedHost perché non conosce l'host pubblico.
+  trustHost: true,
   pages: {
     signIn: "/login",
   },
