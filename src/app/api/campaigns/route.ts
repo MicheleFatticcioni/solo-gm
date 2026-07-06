@@ -17,6 +17,7 @@ export async function GET() {
 const createSchema = z.object({
   name: z.string().trim().min(1, "Il nome della campagna è obbligatorio"),
   gameSystem: z.string().trim().min(1, "Il sistema di gioco è obbligatorio"),
+  aiInstructions: z.string().trim().optional(),
   documentIds: z.array(uuidSchema).optional().default([]),
 });
 
@@ -28,7 +29,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return badRequest(parsed.error.issues[0]?.message ?? "Dati non validi");
   }
-  const { name, gameSystem, documentIds } = parsed.data;
+  const { name, gameSystem, aiInstructions, documentIds } = parsed.data;
 
   if (!(await ownsAllDocuments(userId, documentIds))) {
     return badRequest("Uno o più documenti non esistono");
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
 
   const [campaign] = await db
     .insert(campaigns)
-    .values({ userId, name, gameSystem })
+    .values({ userId, name, gameSystem, aiInstructions: aiInstructions || null })
     .returning();
 
   if (documentIds.length > 0) {

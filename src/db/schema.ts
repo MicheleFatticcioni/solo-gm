@@ -97,6 +97,8 @@ export const campaigns = pgTable("campaigns", {
     .references(() => users.id),
   name: text("name").notNull(),
   gameSystem: text("game_system").notNull(),
+  // Indicazioni libere del giocatore su come l'AI deve condurre la campagna.
+  aiInstructions: text("ai_instructions"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
 });
