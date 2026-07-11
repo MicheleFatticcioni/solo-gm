@@ -1,0 +1,1 @@
+ALTER TABLE "campaigns" ADD COLUMN "ai_instructions" text;

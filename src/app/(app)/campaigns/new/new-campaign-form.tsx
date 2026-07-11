@@ -16,6 +16,7 @@ export function NewCampaignForm({
   const [step, setStep] = useState<1 | 2>(1);
   const [name, setName] = useState("");
   const [gameSystem, setGameSystem] = useState("");
+  const [aiInstructions, setAiInstructions] = useState("");
   const [documents, setDocuments] = useState<PickerDocument[]>(initialDocuments);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -56,6 +57,7 @@ export function NewCampaignForm({
         body: JSON.stringify({
           name: name.trim(),
           gameSystem: gameSystem.trim(),
+          aiInstructions: aiInstructions.trim(),
           documentIds: selectedIds,
         }),
       });
@@ -115,6 +117,27 @@ export function NewCampaignForm({
               placeholder="es. Le terre selvagge"
               className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
             />
+          </div>
+          <div>
+            <label
+              htmlFor="aiInstructions"
+              className="mb-1 block text-sm text-zinc-300"
+            >
+              Istruzioni per l&rsquo;AI{" "}
+              <span className="text-zinc-500">(opzionale)</span>
+            </label>
+            <textarea
+              id="aiInstructions"
+              value={aiInstructions}
+              onChange={(e) => setAiInstructions(e.target.value)}
+              rows={5}
+              placeholder="es. Tono cupo e survival, combattimenti letali, dai molto spazio all'esplorazione…"
+              className="w-full resize-y rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+            />
+            <p className="mt-1 text-xs text-zinc-500">
+              Il GM terrà sempre conto di queste indicazioni. Potrai
+              modificarle in qualsiasi momento dalla pagina della campagna.
+            </p>
           </div>
           <button
             type="submit"

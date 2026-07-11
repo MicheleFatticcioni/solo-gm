@@ -6,6 +6,7 @@ import { extractText, getDocumentProxy } from "unpdf";
 import { db } from "../../db";
 import { chunks, documents } from "../../db/schema";
 import { chunkPages } from "../../lib/chunking";
+import { cleanPageText } from "../../lib/clean-text";
 import { embed } from "../../lib/embeddings";
 
 // Sotto questa media di caratteri per pagina il PDF è quasi
@@ -50,7 +51,13 @@ export async function processPdf(documentId: string): Promise<void> {
       return;
     }
 
-    const textChunks = chunkPages(text.map((t, i) => ({ page: i + 1, text: t })));
+    // Pulizia degli artefatti di impaginazione (watermark, running header
+    // con numero di pagina) prima del chunking: altrimenti finirebbero in
+    // ogni chunk come rumore ripetuto. La rilevazione delle scansioni sopra
+    // usa apposta il testo grezzo.
+    const textChunks = chunkPages(
+      text.map((t, i) => ({ page: i + 1, text: cleanPageText(t) })),
+    );
 
     // Idempotenza: se il job riparte (retry, riavvio worker) non
     // devono restare chunks del tentativo precedente.

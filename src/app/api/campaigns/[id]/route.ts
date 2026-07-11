@@ -28,8 +28,14 @@ const patchSchema = z
   .object({
     name: z.string().trim().min(1).optional(),
     gameSystem: z.string().trim().min(1).optional(),
+    // Stringa vuota = rimozione delle istruzioni (salvata come null).
+    aiInstructions: z
+      .string()
+      .trim()
+      .transform((value) => value || null)
+      .optional(),
   })
-  .refine((data) => data.name !== undefined || data.gameSystem !== undefined, {
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
     message: "Nessun campo da aggiornare",
   });
 

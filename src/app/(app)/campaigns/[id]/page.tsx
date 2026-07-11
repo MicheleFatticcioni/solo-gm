@@ -13,6 +13,7 @@ import {
 import { getUserId } from "@/lib/session";
 
 import { CampaignHeader } from "./campaign-header";
+import { CampaignInstructions } from "./campaign-instructions";
 import { CampaignSummary } from "./campaign-summary";
 import { ManageDocuments } from "./manage-documents";
 
@@ -116,6 +117,11 @@ export default async function CampaignPage({
           </ul>
         )}
       </section>
+
+      <CampaignInstructions
+        campaignId={campaign.id}
+        initialInstructions={campaign.aiInstructions}
+      />
 
       <CampaignSummary
         campaignId={campaign.id}

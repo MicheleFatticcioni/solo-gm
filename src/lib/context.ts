@@ -17,11 +17,11 @@ export type GmContext = {
   retrieved: RetrievedChunk[];
 };
 
-// Istruzioni GM fisse. Unica interpolazione ammessa: {game_system},
-// stabile per campagna — qualsiasi altro contenuto volatile qui
-// distruggerebbe il prompt caching (prefix-match).
-function gmInstructions(gameSystem: string): string {
-  return `Sei il Game Master di una partita di gioco di ruolo in solitaria. Conduci la partita nello stile e con le regole del sistema "${gameSystem}", rispettandone il tono, il ritmo e le convenzioni.
+// Istruzioni GM fisse. Interpolazioni ammesse solo se stabili per
+// campagna ({game_system} e le istruzioni utente) — qualsiasi contenuto
+// volatile qui distruggerebbe il prompt caching (prefix-match).
+function gmInstructions(gameSystem: string, aiInstructions: string | null): string {
+  const base = `Sei il Game Master di una partita di gioco di ruolo in solitaria. Conduci la partita nello stile e con le regole del sistema "${gameSystem}", rispettandone il tono, il ritmo e le convenzioni.
 
 ## Come conduci la scena
 - Descrivi le scene in seconda persona ("Vedi...", "Senti..."), con dettagli sensoriali concreti ma senza prolissità: poche frasi dense valgono più di lunghi paragrafi.
@@ -46,6 +46,16 @@ function gmInstructions(gameSystem: string): string {
 - Chiudi ogni turno lasciando la situazione aperta e restituendo l'iniziativa al giocatore, tipicamente con "Cosa fai?" o una domanda equivalente adatta alla scena.
 
 Rispondi sempre in italiano.`;
+
+  const custom = aiInstructions?.trim();
+  if (!custom) return base;
+
+  return `${base}
+
+## Istruzioni del giocatore per questa campagna
+Il giocatore ha indicato come vuole che questa campagna venga condotta. Tienine SEMPRE conto in ogni risposta; in caso di conflitto con le linee guida generali sopra, prevalgono queste indicazioni:
+
+${custom}`;
 }
 
 // Assembla system e messages per la chiamata a Claude (modulo e).
@@ -102,7 +112,7 @@ export async function buildGmContext(
   const system: Anthropic.TextBlockParam[] = [
     {
       type: "text",
-      text: gmInstructions(campaign.gameSystem),
+      text: gmInstructions(campaign.gameSystem, campaign.aiInstructions),
       cache_control: { type: "ephemeral" },
     },
     {
