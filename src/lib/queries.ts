@@ -6,7 +6,14 @@ import {
   campaigns,
   campaignSummaries,
   documents,
+  users,
 } from "@/db/schema";
+
+// La registrazione è consentita solo per creare il primo (e unico) utente.
+export async function hasAnyUser() {
+  const [existing] = await db.select({ id: users.id }).from(users).limit(1);
+  return !!existing;
+}
 
 // Lista campagne con conteggio documenti e data ultimo messaggio.
 export async function listCampaigns(userId: string) {

@@ -15,6 +15,13 @@
       "when": 1783351833349,
       "tag": "0001_thin_iron_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783756354840,
+      "tag": "0002_dapper_secret_warriors",
+      "breakpoints": true
     }
   ]
 }
