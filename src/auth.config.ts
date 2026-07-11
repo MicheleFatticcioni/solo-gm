@@ -23,8 +23,17 @@ export const authConfig = {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
       const isLoginPage = nextUrl.pathname.startsWith("/login");
+      // /register resta pubblica qui; la pagina stessa verifica lato DB che
+      // non esista già un utente (l'app è single-tenant dopo il primo setup).
+      const isRegisterPage = nextUrl.pathname.startsWith("/register");
+      // La route API ha lo stesso controllo hasAnyUser() al suo interno:
+      // qui va lasciata passare senza redirect, altrimenti il fetch del
+      // form di registrazione riceverebbe una redirect a /login invece del JSON.
+      const isRegisterApi = nextUrl.pathname === "/api/register";
 
-      if (isLoginPage) {
+      if (isRegisterApi) return true;
+
+      if (isLoginPage || isRegisterPage) {
         if (isLoggedIn) {
           return Response.redirect(new URL("/dashboard", nextUrl));
         }

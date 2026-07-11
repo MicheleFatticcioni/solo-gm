@@ -7,11 +7,15 @@ import postgres from "postgres";
 import * as schema from "../src/db/schema";
 
 async function main() {
+  const firstName = process.env.APP_USER_FIRST_NAME;
+  const lastName = process.env.APP_USER_LAST_NAME;
   const email = process.env.APP_USER_EMAIL;
   const password = process.env.APP_USER_PASSWORD;
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL non impostata");
-  if (!email || !password) {
-    throw new Error("APP_USER_EMAIL e APP_USER_PASSWORD sono richieste per il seed");
+  if (!firstName || !lastName || !email || !password) {
+    throw new Error(
+      "APP_USER_FIRST_NAME, APP_USER_LAST_NAME, APP_USER_EMAIL e APP_USER_PASSWORD sono richieste per il seed",
+    );
   }
 
   const client = postgres(process.env.DATABASE_URL, { max: 1 });
@@ -25,6 +29,8 @@ async function main() {
     console.log(`Utente ${email} già presente, nessuna modifica.`);
   } else {
     await db.insert(schema.users).values({
+      firstName,
+      lastName,
       email,
       passwordHash: await hash(password, 12),
     });

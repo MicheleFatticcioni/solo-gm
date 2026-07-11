@@ -1,16 +1,12 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { badRequest, notFound, parseId, unauthorized } from "@/lib/api";
 import { getCampaign } from "@/lib/queries";
 import { getUserId } from "@/lib/session";
+import { AiConfigError, createAnthropicClient, getAiSettings } from "@/lib/settings";
 
 const bodySchema = z.object({ text: z.string().trim().min(1) });
-
-const IMPROVE_MODEL = process.env.ANTHROPIC_MODEL_IMPROVE ?? "claude-opus-4-8";
-
-const client = new Anthropic();
 
 // Riscrittura conservativa: ottimizza le istruzioni che il giocatore dà al
 // GM, senza cambiarne l'intento. Non è una chat né un turno di gioco.
@@ -48,8 +44,11 @@ export async function POST(
   if (!parsed.success) return badRequest("Testo mancante o vuoto");
 
   try {
+    const settings = await getAiSettings(userId);
+    const client = createAnthropicClient(settings);
+
     const message = await client.messages.create({
-      model: IMPROVE_MODEL,
+      model: settings.modelImprove,
       max_tokens: 4000,
       system: IMPROVE_SYSTEM,
       messages: [{ role: "user", content: parsed.data.text }],
@@ -71,6 +70,9 @@ export async function POST(
     return NextResponse.json({ instructions: improved });
   } catch (error) {
     console.error("instructions/improve: errore AI:", error);
+    if (error instanceof AiConfigError) {
+      return NextResponse.json({ error: error.message }, { status: 502 });
+    }
     return NextResponse.json(
       { error: "L'AI non è riuscita a migliorare il testo, riprova tra poco." },
       { status: 502 },

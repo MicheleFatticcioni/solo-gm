@@ -5,6 +5,10 @@ export function unauthorized() {
   return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
 }
 
+export function forbidden(message: string) {
+  return NextResponse.json({ error: message }, { status: 403 });
+}
+
 export function notFound() {
   return NextResponse.json({ error: "Risorsa non trovata" }, { status: 404 });
 }

@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { and, desc, eq, sql } from "drizzle-orm";
 
 import { db } from "../../db";
 import { campaignSummaries, messages } from "../../db/schema";
+import { createAnthropicClient, getAiSettings } from "../../lib/settings";
 
 // Gli ultimi turni restano fuori dalla finestra da riassumere: sono
 // ancora in chiaro nel contesto della chat, e riassumerli farebbe
@@ -10,10 +10,6 @@ import { campaignSummaries, messages } from "../../db/schema";
 const TAIL_GUARD = 6;
 // Sotto questa soglia di messaggi nuovi non vale la pena rigenerare.
 const MIN_NEW_MESSAGES = 10;
-
-const SUMMARY_MODEL = process.env.ANTHROPIC_MODEL_SUMMARY ?? "claude-opus-4-8";
-
-const client = new Anthropic();
 
 // Nota di evoluzione: lo "Stato del party" potrebbe diventare una scheda
 // strutturata jsonb aggiornata via tool use, come fonte di verità
@@ -94,8 +90,12 @@ export async function updateSummary(campaignId: string): Promise<void> {
         }`
       : "(nessuno: questa è la prima parte della storia)";
 
+    // L'app è single-tenant: le impostazioni sono quelle dell'unico utente.
+    const settings = await getAiSettings();
+    const client = createAnthropicClient(settings);
+
     const stream = client.messages.stream({
-      model: SUMMARY_MODEL,
+      model: settings.modelSummary,
       max_tokens: 8000,
       thinking: { type: "adaptive" },
       system: SUMMARY_SYSTEM,
