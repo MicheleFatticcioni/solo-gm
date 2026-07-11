@@ -6,6 +6,10 @@ import { RegisterForm } from "./register-form";
 
 // La registrazione crea solo il primo utente dell'istanza: se esiste già,
 // niente self-service (il proxy edge non può fare questo controllo sul DB).
+// force-dynamic: senza segnali di dinamicità (cookies/auth), Next tenterebbe
+// di prerenderizzare la pagina a build time, quando il DB non è raggiungibile.
+export const dynamic = "force-dynamic";
+
 export default async function RegisterPage() {
   if (await hasAnyUser()) {
     redirect("/login");
