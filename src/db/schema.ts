@@ -39,6 +39,11 @@ export const documentStatusEnum = pgEnum("document_status", [
 
 export const messageRoleEnum = pgEnum("message_role", ["user", "assistant"]);
 
+export const embeddingsProviderEnum = pgEnum("embeddings_provider", [
+  "voyage",
+  "ollama",
+]);
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   firstName: text("first_name").notNull(),
@@ -46,6 +51,28 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Chiavi API e modelli dei servizi AI, gestiti dall'interfaccia
+// (pagina Impostazioni). Le variabili d'ambiente restano solo come
+// fallback per le installazioni esistenti: il DB ha la precedenza.
+// Ogni sezione dell'app (partita, riassunto, migliora istruzioni)
+// ha il suo modello, tutti null-able: null = usa fallback/default.
+export const userSettings = pgTable("user_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  anthropicApiKey: text("anthropic_api_key"),
+  modelGm: text("model_gm"),
+  modelSummary: text("model_summary"),
+  modelImprove: text("model_improve"),
+  embeddingsProvider: embeddingsProviderEnum("embeddings_provider"),
+  voyageApiKey: text("voyage_api_key"),
+  ollamaHost: text("ollama_host"),
+  ollamaEmbedModel: text("ollama_embed_model"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const documents = pgTable("documents", {

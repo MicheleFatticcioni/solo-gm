@@ -21,6 +21,9 @@ export default async function AppLayout({
             <Link href="/documenti" className="hover:text-white">
               Documenti
             </Link>
+            <Link href="/impostazioni" className="hover:text-white">
+              Impostazioni
+            </Link>
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm text-zinc-400">
             <span>{session?.user?.email}</span>

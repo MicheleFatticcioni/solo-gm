@@ -10,15 +10,13 @@ import { rollDice, rollDiceTool, type RollDiceInput } from "@/lib/dice";
 import { getCampaign } from "@/lib/queries";
 import { enqueueUpdateSummary } from "@/lib/queue";
 import { getUserId } from "@/lib/session";
+import { AiConfigError, createAnthropicClient, getAiSettings } from "@/lib/settings";
 
 const bodySchema = z.object({ message: z.string().trim().min(1) });
 
 // Iterazioni massime del loop agentico (stream → tool_use → riapri):
 // oltre questa soglia si tronca il turno per sicurezza.
 const MAX_ITERATIONS = 5;
-
-const client = new Anthropic();
-const GM_MODEL = process.env.ANTHROPIC_MODEL_GM ?? "claude-opus-4-8";
 
 type DiceEvent = {
   notation: string;
@@ -59,6 +57,7 @@ export async function POST(
     .values({ campaignId: id, role: "user", content: userMessage });
 
   const context = await buildGmContext(id, userMessage);
+  const settings = await getAiSettings(userId);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -68,7 +67,7 @@ export async function POST(
       };
 
       try {
-        const messageId = await runGmTurn(id, context, send);
+        const messageId = await runGmTurn(id, context, settings, send);
         send({ type: "done", messageId });
       } catch (error) {
         console.error("chat: errore nel turno GM:", error);
@@ -93,8 +92,10 @@ export async function POST(
 async function runGmTurn(
   campaignId: string,
   context: Awaited<ReturnType<typeof buildGmContext>>,
+  settings: Awaited<ReturnType<typeof getAiSettings>>,
   send: (event: ChatEvent) => void,
 ): Promise<string> {
+  const client = createAnthropicClient(settings);
   const conversation = [...context.messages];
   const textParts: string[] = [];
   const dice: DiceEvent[] = [];
@@ -103,7 +104,7 @@ async function runGmTurn(
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     const stream = client.messages.stream({
-      model: GM_MODEL,
+      model: settings.modelGm,
       max_tokens: 8000,
       thinking: { type: "adaptive" },
       system: context.system,
@@ -241,6 +242,9 @@ async function maybeTriggerSummary(campaignId: string): Promise<void> {
 }
 
 function friendlyErrorMessage(error: unknown): string {
+  if (error instanceof AiConfigError) {
+    return error.message;
+  }
   if (error instanceof Anthropic.RateLimitError) {
     return "Il GM sta riprendendo fiato, riprova tra poco.";
   }
