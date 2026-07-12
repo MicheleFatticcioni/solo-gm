@@ -5,6 +5,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { parseId } from "@/lib/api";
 import { docTypeLabels } from "@/lib/format";
 import {
+  getActiveSummary,
   getCampaign,
   listCampaignDocuments,
   listLibrary,
@@ -31,10 +32,11 @@ export default async function CampaignPage({
   const campaign = await getCampaign(userId, id);
   if (!campaign) notFound();
 
-  const [associated, library, wikiPages] = await Promise.all([
+  const [associated, library, wikiPages, legacySummary] = await Promise.all([
     listCampaignDocuments(id),
     listLibrary(userId),
     getWikiPages(id),
+    getActiveSummary(id),
   ]);
 
   const wikiFolders = WIKI_FOLDERS.map((folder) => ({
@@ -136,7 +138,18 @@ export default async function CampaignPage({
         initialInstructions={campaign.aiInstructions}
       />
 
-      <CampaignWiki campaignId={campaign.id} initialFolders={wikiFolders} />
+      <CampaignWiki
+        campaignId={campaign.id}
+        initialFolders={wikiFolders}
+        legacySummary={
+          wikiPages.length === 0 && legacySummary
+            ? {
+                content: legacySummary.content,
+                createdAt: legacySummary.createdAt.toISOString(),
+              }
+            : null
+        }
+      />
     </div>
   );
 }

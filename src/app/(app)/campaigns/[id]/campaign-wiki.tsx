@@ -18,6 +18,8 @@ type WikiFolderGroup = {
 
 type WikiPage = WikiPageMeta & { folder: string; content: string };
 
+type LegacySummary = { content: string; createdAt: string };
+
 // Quanto a lungo il polling attende dopo "Aggiorna ora": il job può
 // legittimamente non produrre nulla (guardia sui messaggi minimi).
 const POLL_INTERVAL_MS = 3000;
@@ -48,9 +50,11 @@ const emptyDraft = {
 export function CampaignWiki({
   campaignId,
   initialFolders,
+  legacySummary,
 }: {
   campaignId: string;
   initialFolders: WikiFolderGroup[];
+  legacySummary: LegacySummary | null;
 }) {
   const [folders, setFolders] = useState<WikiFolderGroup[]>(initialFolders);
   const [selected, setSelected] = useState<WikiPage | null>(null);
@@ -337,9 +341,30 @@ export function CampaignWiki({
       </div>
 
       {pageCount === 0 && !creating ? (
-        <p className="rounded border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-500">
-          La wiki verrà popolata automaticamente man mano che giochi.
-        </p>
+        legacySummary ? (
+          <div className="rounded border border-zinc-800 p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+              <span className="rounded-full border border-amber-800/60 bg-amber-950/40 px-2 py-0.5 text-amber-200">
+                riassunto legacy, ancora usato come contesto
+              </span>
+              <span>
+                Aggiornato il {dateFormatter.format(new Date(legacySummary.createdAt))}
+              </span>
+            </div>
+            <p className="mb-3 text-sm text-zinc-500">
+              La wiki non ha ancora pagine: finché resta vuota, il GM usa
+              questo riassunto come memoria a lungo termine. Verrà sostituito
+              automaticamente non appena la wiki si popola.
+            </p>
+            <div className="space-y-2 text-sm leading-relaxed text-zinc-300 [&_h2]:mt-4 [&_h2]:font-semibold [&_h2]:text-zinc-100 [&_h2:first-child]:mt-0 [&_li]:ml-1 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
+              <ReactMarkdown>{legacySummary.content}</ReactMarkdown>
+            </div>
+          </div>
+        ) : (
+          <p className="rounded border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-500">
+            La wiki verrà popolata automaticamente man mano che giochi.
+          </p>
+        )
       ) : (
         <div className="grid gap-4 md:grid-cols-[16rem_1fr]">
           <nav className="space-y-3 md:max-h-[32rem] md:overflow-y-auto">
