@@ -18,9 +18,18 @@ type DiceEvent = {
   total: number;
 };
 
-// Un messaggio è una sequenza di parti: durante lo streaming testo e
-// tiri di dado si alternano nell'ordine in cui arrivano dal server.
-type Part = { type: "text"; text: string } | ({ type: "dice" } & DiceEvent);
+type WikiReadEvent = {
+  folder: string;
+  slug: string;
+  title: string | null;
+};
+
+// Un messaggio è una sequenza di parti: durante lo streaming testo,
+// tiri di dado e letture wiki si alternano nell'ordine in cui arrivano.
+type Part =
+  | { type: "text"; text: string }
+  | ({ type: "dice" } & DiceEvent)
+  | ({ type: "wiki" } & WikiReadEvent);
 
 type ChatMessage = {
   id: string;
@@ -32,12 +41,13 @@ type ApiMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  metadata: { dice?: DiceEvent[] } | null;
+  metadata: { dice?: DiceEvent[]; wikiReads?: WikiReadEvent[] } | null;
 };
 
 type SseEvent =
   | { type: "text"; text: string }
   | ({ type: "dice" } & DiceEvent)
+  | ({ type: "wiki" } & WikiReadEvent)
   | { type: "done"; messageId: string }
   | { type: "error"; message: string };
 
@@ -47,10 +57,13 @@ const DRAFT_ID = "draft";
 
 const PAGE_SIZE = 50;
 
-// Nei messaggi persistiti la posizione dei tiri nel testo è persa:
-// si rende il testo e poi i chip dado in coda.
+// Nei messaggi persistiti la posizione di tiri e letture nel testo è
+// persa: si rendono le letture wiki, il testo e poi i chip dado in coda.
 function toChatMessage(message: ApiMessage): ChatMessage {
   const parts: Part[] = [];
+  for (const read of message.metadata?.wikiReads ?? []) {
+    parts.push({ type: "wiki", ...read });
+  }
   if (message.content) parts.push({ type: "text", text: message.content });
   for (const dice of message.metadata?.dice ?? []) {
     parts.push({ type: "dice", ...dice });
@@ -243,6 +256,14 @@ export function Chat({
           total: event.total,
         });
         break;
+      case "wiki":
+        appendToDraft({
+          type: "wiki",
+          folder: event.folder,
+          slug: event.slug,
+          title: event.title,
+        });
+        break;
       case "done":
         setMessages((current) =>
           current.map((m) => (m.id === DRAFT_ID ? { ...m, id: event.messageId } : m)),
@@ -352,12 +373,27 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             >
               <ReactMarkdown>{part.text}</ReactMarkdown>
             </div>
-          ) : (
+          ) : part.type === "dice" ? (
             <DiceChip key={i} dice={part} />
+          ) : (
+            <WikiChip key={i} read={part} />
           ),
         )}
       </div>
     </div>
+  );
+}
+
+// 📖 consulta la wiki: Lord Anor
+function WikiChip({ read }: { read: WikiReadEvent }) {
+  return (
+    <span
+      title={`${read.folder}/${read.slug}`}
+      className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 rounded-full border border-sky-800/60 bg-sky-950/40 px-3 py-1 text-sm text-sky-200"
+    >
+      <span aria-hidden>📖</span>
+      <span>consulta la wiki: {read.title ?? `${read.folder}/${read.slug}`}</span>
+    </span>
   );
 }
 

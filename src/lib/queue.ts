@@ -1,10 +1,10 @@
 import { PgBoss, type Queue, type QueueOptions } from "pg-boss";
 
 export const PROCESS_PDF_QUEUE = "process-pdf";
-export const UPDATE_SUMMARY_QUEUE = "update-summary";
+export const UPDATE_WIKI_QUEUE = "update-wiki";
 
 export type ProcessPdfJobData = { documentId: string };
-export type UpdateSummaryJobData = { campaignId: string };
+export type UpdateWikiJobData = { campaignId: string };
 
 // Opzioni condivise tra app e worker: createQueue è un upsert,
 // quindi entrambi possono chiamarla senza coordinarsi.
@@ -17,7 +17,7 @@ export const PROCESS_PDF_QUEUE_OPTIONS: QueueOptions = {
   expireInSeconds: 3600,
 };
 
-export const UPDATE_SUMMARY_QUEUE_OPTIONS: Omit<Queue, "name"> = {
+export const UPDATE_WIKI_QUEUE_OPTIONS: Omit<Queue, "name"> = {
   // stately + singletonKey=campaignId: al più un job accodato e uno
   // attivo per campagna — niente run concorrenti né duplicati in coda.
   policy: "stately",
@@ -41,7 +41,7 @@ async function createBoss(): Promise<PgBoss> {
   });
   await boss.start();
   await boss.createQueue(PROCESS_PDF_QUEUE, PROCESS_PDF_QUEUE_OPTIONS);
-  await boss.createQueue(UPDATE_SUMMARY_QUEUE, UPDATE_SUMMARY_QUEUE_OPTIONS);
+  await boss.createQueue(UPDATE_WIKI_QUEUE, UPDATE_WIKI_QUEUE_OPTIONS);
   return boss;
 }
 
@@ -55,8 +55,8 @@ export async function enqueueProcessPdf(documentId: string): Promise<void> {
   await boss.send(PROCESS_PDF_QUEUE, data);
 }
 
-export async function enqueueUpdateSummary(campaignId: string): Promise<void> {
+export async function enqueueUpdateWiki(campaignId: string): Promise<void> {
   const boss = await getBoss();
-  const data: UpdateSummaryJobData = { campaignId };
-  await boss.send(UPDATE_SUMMARY_QUEUE, data, { singletonKey: campaignId });
+  const data: UpdateWikiJobData = { campaignId };
+  await boss.send(UPDATE_WIKI_QUEUE, data, { singletonKey: campaignId });
 }

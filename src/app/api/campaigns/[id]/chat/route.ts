@@ -8,15 +8,22 @@ import { badRequest, notFound, parseId, unauthorized } from "@/lib/api";
 import { buildGmContext } from "@/lib/context";
 import { rollDice, rollDiceTool, type RollDiceInput } from "@/lib/dice";
 import { getCampaign } from "@/lib/queries";
-import { enqueueUpdateSummary } from "@/lib/queue";
+import { enqueueUpdateWiki } from "@/lib/queue";
 import { getUserId } from "@/lib/session";
 import { AiConfigError, createAnthropicClient, getAiSettings } from "@/lib/settings";
+import {
+  getWikiPage,
+  isWikiFolder,
+  readWikiPageTool,
+  type ReadWikiPageInput,
+} from "@/lib/wiki";
 
 const bodySchema = z.object({ message: z.string().trim().min(1) });
 
 // Iterazioni massime del loop agentico (stream → tool_use → riapri):
-// oltre questa soglia si tronca il turno per sicurezza.
-const MAX_ITERATIONS = 5;
+// oltre questa soglia si tronca il turno per sicurezza. 8 perché in un
+// turno possono convivere letture wiki e tiri di dado.
+const MAX_ITERATIONS = 8;
 
 type DiceEvent = {
   notation: string;
@@ -25,10 +32,17 @@ type DiceEvent = {
   total: number;
 };
 
+type WikiReadEvent = {
+  folder: string;
+  slug: string;
+  title: string | null;
+};
+
 // Eventi SSE verso il browser.
 type ChatEvent =
   | { type: "text"; text: string }
   | ({ type: "dice" } & DiceEvent)
+  | ({ type: "wiki" } & WikiReadEvent)
   | { type: "done"; messageId: string }
   | { type: "error"; message: string };
 
@@ -99,6 +113,7 @@ async function runGmTurn(
   const conversation = [...context.messages];
   const textParts: string[] = [];
   const dice: DiceEvent[] = [];
+  const wikiReads: WikiReadEvent[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
 
@@ -109,7 +124,7 @@ async function runGmTurn(
       thinking: { type: "adaptive" },
       system: context.system,
       messages: conversation,
-      tools: [rollDiceTool],
+      tools: [rollDiceTool, readWikiPageTool],
     });
 
     for await (const event of stream) {
@@ -134,8 +149,14 @@ async function runGmTurn(
     // SOLO messaggio user con tutti i tool_result, poi si riapre lo stream.
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of final.content) {
-      if (block.type !== "tool_use" || block.name !== "roll_dice") continue;
-      toolResults.push(executeRollDice(block, send, dice));
+      if (block.type !== "tool_use") continue;
+      if (block.name === "roll_dice") {
+        toolResults.push(executeRollDice(block, send, dice));
+      } else if (block.name === "read_wiki_page") {
+        toolResults.push(
+          await executeReadWikiPage(campaignId, block, send, wikiReads),
+        );
+      }
     }
     conversation.push(
       { role: "assistant", content: final.content },
@@ -154,6 +175,7 @@ async function runGmTurn(
       metadata: {
         chunkIds: context.retrieved.map((c) => c.chunkId),
         dice,
+        wikiReads,
       },
     })
     .returning({ id: messages.id });
@@ -163,9 +185,44 @@ async function runGmTurn(
     .set({ lastPlayedAt: new Date() })
     .where(eq(campaigns.id, campaignId));
 
-  await maybeTriggerSummary(campaignId);
+  await maybeTriggerWikiUpdate(campaignId);
 
   return saved.id;
+}
+
+// Lettura di una pagina wiki richiesta dal GM: la pagina inesistente
+// non è un errore fatale, si rimanda il modello all'indice.
+async function executeReadWikiPage(
+  campaignId: string,
+  block: Anthropic.ToolUseBlock,
+  send: (event: ChatEvent) => void,
+  wikiReads: WikiReadEvent[],
+): Promise<Anthropic.ToolResultBlockParam> {
+  const input = block.input as ReadWikiPageInput;
+  const folder = input.folder ?? "";
+  const slug = input.slug ?? "";
+
+  const page = isWikiFolder(folder)
+    ? await getWikiPage(campaignId, folder, slug)
+    : null;
+
+  if (!page) {
+    return {
+      type: "tool_result",
+      tool_use_id: block.id,
+      content: `Pagina "${folder}/${slug}" non trovata: usa una voce dell'indice nella memoria della campagna.`,
+      is_error: true,
+    };
+  }
+
+  const event: WikiReadEvent = { folder, slug, title: page.title };
+  wikiReads.push(event);
+  send({ type: "wiki", ...event });
+  return {
+    type: "tool_result",
+    tool_use_id: block.id,
+    content: `# ${page.title}\n(${page.description})\n\n${page.content}`,
+  };
 }
 
 function executeRollDice(
@@ -203,22 +260,33 @@ function executeRollDice(
 // Token stimati quando input/output non sono salvati (messaggi user).
 const CHARS_PER_TOKEN = 3.5;
 
-// Se la storia non coperta dal riassunto attivo supera la soglia,
-// accoda l'aggiornamento del riassunto (job del modulo f).
-async function maybeTriggerSummary(campaignId: string): Promise<void> {
+// Se la storia non coperta dalla wiki supera la soglia, accoda
+// l'aggiornamento della wiki (job del modulo g). Finché la wiki non è
+// popolata il watermark è quello del riassunto legacy: alla prima
+// esecuzione il job usa il riassunto come seed.
+async function maybeTriggerWikiUpdate(campaignId: string): Promise<void> {
   const threshold = Number(process.env.SUMMARY_TRIGGER_TOKENS ?? 25000);
 
-  const [summary] = await db
-    .select({ coversUntilMessageId: campaignSummaries.coversUntilMessageId })
-    .from(campaignSummaries)
-    .where(eq(campaignSummaries.campaignId, campaignId))
-    .orderBy(sql`${campaignSummaries.createdAt} desc`)
-    .limit(1);
+  const [campaign] = await db
+    .select({ wikiCoversUntilMessageId: campaigns.wikiCoversUntilMessageId })
+    .from(campaigns)
+    .where(eq(campaigns.id, campaignId));
 
-  const afterSummary = summary?.coversUntilMessageId
+  let watermark = campaign?.wikiCoversUntilMessageId ?? null;
+  if (!watermark) {
+    const [summary] = await db
+      .select({ coversUntilMessageId: campaignSummaries.coversUntilMessageId })
+      .from(campaignSummaries)
+      .where(eq(campaignSummaries.campaignId, campaignId))
+      .orderBy(sql`${campaignSummaries.createdAt} desc`)
+      .limit(1);
+    watermark = summary?.coversUntilMessageId ?? null;
+  }
+
+  const afterWatermark = watermark
     ? gt(
         messages.createdAt,
-        sql`(select created_at from messages where id = ${summary.coversUntilMessageId})`,
+        sql`(select created_at from messages where id = ${watermark})`,
       )
     : undefined;
 
@@ -229,7 +297,7 @@ async function maybeTriggerSummary(campaignId: string): Promise<void> {
       contentLength: sql<number>`length(${messages.content})`,
     })
     .from(messages)
-    .where(and(eq(messages.campaignId, campaignId), afterSummary));
+    .where(and(eq(messages.campaignId, campaignId), afterWatermark));
 
   const accumulated = rows.reduce((sum, row) => {
     const saved = (row.inputTokens ?? 0) + (row.outputTokens ?? 0);
@@ -237,7 +305,7 @@ async function maybeTriggerSummary(campaignId: string): Promise<void> {
   }, 0);
 
   if (accumulated > threshold) {
-    await enqueueUpdateSummary(campaignId);
+    await enqueueUpdateWiki(campaignId);
   }
 }
 

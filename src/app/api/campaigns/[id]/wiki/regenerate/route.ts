@@ -2,16 +2,14 @@ import { NextResponse } from "next/server";
 
 import { notFound, parseId, unauthorized } from "@/lib/api";
 import { getCampaign } from "@/lib/queries";
-import { enqueueUpdateSummary } from "@/lib/queue";
+import { enqueueUpdateWiki } from "@/lib/queue";
 import { getUserId } from "@/lib/session";
 
-// POST /api/campaigns/[id]/summary/regenerate — enqueue immediato del
-// job update-summary (bypassa la soglia token; la guardia sui messaggi
-// minimi resta nel job).
-export async function POST(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
+type Params = { params: Promise<{ id: string }> };
+
+// POST /api/campaigns/[id]/wiki/regenerate — enqueue immediato del job
+// update-wiki (bypass della soglia; la guardia del job resta).
+export async function POST(_request: Request, { params }: Params) {
   const userId = await getUserId();
   if (!userId) return unauthorized();
 
@@ -21,6 +19,6 @@ export async function POST(
   const campaign = await getCampaign(userId, id);
   if (!campaign) return notFound();
 
-  await enqueueUpdateSummary(id);
-  return NextResponse.json({ ok: true }, { status: 202 });
+  await enqueueUpdateWiki(id);
+  return NextResponse.json({ enqueued: true }, { status: 202 });
 }

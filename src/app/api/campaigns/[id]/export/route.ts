@@ -5,6 +5,7 @@ import { messages } from "@/db/schema";
 import { notFound, parseId, unauthorized } from "@/lib/api";
 import { getActiveSummary, getCampaign } from "@/lib/queries";
 import { getUserId } from "@/lib/session";
+import { CORE_SLUG, getWikiPage } from "@/lib/wiki";
 
 const timestampFormatter = new Intl.DateTimeFormat("it-IT", {
   dateStyle: "medium",
@@ -12,7 +13,8 @@ const timestampFormatter = new Intl.DateTimeFormat("it-IT", {
 });
 
 // GET /api/campaigns/[id]/export — cronologia completa in markdown
-// scaricabile: intestazione, riassunto attivo, poi tutti i messaggi.
+// scaricabile: intestazione, panoramica della wiki (fallback: riassunto
+// legacy del modulo f), poi tutti i messaggi.
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -26,7 +28,8 @@ export async function GET(
   const campaign = await getCampaign(userId, id);
   if (!campaign) return notFound();
 
-  const [summary, history] = await Promise.all([
+  const [core, summary, history] = await Promise.all([
+    getWikiPage(id, "core", CORE_SLUG),
     getActiveSummary(id),
     db
       .select({
@@ -49,8 +52,8 @@ export async function GET(
   const markdown = [
     `# ${campaign.name}`,
     `Sistema: ${campaign.gameSystem} — Esportata il ${timestampFormatter.format(new Date())}`,
-    `## Riassunto della campagna`,
-    summary?.content ?? "_Nessun riassunto generato._",
+    `## Panoramica della campagna`,
+    core?.content ?? summary?.content ?? "_Nessuna panoramica generata._",
     `## Cronologia`,
     transcript || "_Nessun messaggio._",
   ].join("\n\n");
