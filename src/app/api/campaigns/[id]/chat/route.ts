@@ -9,8 +9,9 @@ import { buildGmContext } from "@/lib/context";
 import { rollDice, rollDiceTool, type RollDiceInput } from "@/lib/dice";
 import { getCampaign } from "@/lib/queries";
 import { enqueueUpdateWiki } from "@/lib/queue";
+import { createLlmClient } from "@/lib/llm";
 import { getUserId } from "@/lib/session";
-import { AiConfigError, createAnthropicClient, getAiSettings } from "@/lib/settings";
+import { AiConfigError, chatModel, getAiSettings } from "@/lib/settings";
 import {
   getWikiPage,
   isWikiFolder,
@@ -101,15 +102,16 @@ export async function POST(
   });
 }
 
-// Loop agentico manuale con streaming: il tool runner del SDK non basta
-// perché i text_delta vanno inoltrati al client man mano che arrivano.
+// Loop agentico manuale con streaming: i text_delta vanno inoltrati al
+// client man mano che arrivano, qualunque sia il provider.
 async function runGmTurn(
   campaignId: string,
   context: Awaited<ReturnType<typeof buildGmContext>>,
   settings: Awaited<ReturnType<typeof getAiSettings>>,
   send: (event: ChatEvent) => void,
 ): Promise<string> {
-  const client = createAnthropicClient(settings);
+  const client = createLlmClient(settings);
+  const model = chatModel(settings, "gm");
   const conversation = [...context.messages];
   const textParts: string[] = [];
   const dice: DiceEvent[] = [];
@@ -118,32 +120,25 @@ async function runGmTurn(
   let outputTokens = 0;
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-    const stream = client.messages.stream({
-      model: settings.modelGm,
-      max_tokens: 8000,
-      thinking: { type: "adaptive" },
-      system: context.system,
-      messages: conversation,
-      tools: [rollDiceTool, readWikiPageTool],
-    });
+    const final = await client.chat(
+      {
+        model,
+        maxTokens: 8000,
+        thinking: true,
+        system: context.system,
+        messages: conversation,
+        tools: [rollDiceTool, readWikiPageTool],
+      },
+      (text) => send({ type: "text", text }),
+    );
 
-    for await (const event of stream) {
-      if (
-        event.type === "content_block_delta" &&
-        event.delta.type === "text_delta"
-      ) {
-        send({ type: "text", text: event.delta.text });
-      }
-    }
-
-    const final = await stream.finalMessage();
-    inputTokens += final.usage.input_tokens;
-    outputTokens += final.usage.output_tokens;
+    inputTokens += final.usage.inputTokens;
+    outputTokens += final.usage.outputTokens;
     for (const block of final.content) {
       if (block.type === "text") textParts.push(block.text);
     }
 
-    if (final.stop_reason !== "tool_use") break;
+    if (final.stopReason !== "tool_use") break;
 
     // Turno assistant completo (thinking/testo/tool_use inclusi) + un
     // SOLO messaggio user con tutti i tool_result, poi si riapre lo stream.
@@ -194,7 +189,7 @@ async function runGmTurn(
 // non è un errore fatale, si rimanda il modello all'indice.
 async function executeReadWikiPage(
   campaignId: string,
-  block: Anthropic.ToolUseBlock,
+  block: Anthropic.ToolUseBlockParam,
   send: (event: ChatEvent) => void,
   wikiReads: WikiReadEvent[],
 ): Promise<Anthropic.ToolResultBlockParam> {
@@ -226,7 +221,7 @@ async function executeReadWikiPage(
 }
 
 function executeRollDice(
-  block: Anthropic.ToolUseBlock,
+  block: Anthropic.ToolUseBlockParam,
   send: (event: ChatEvent) => void,
   dice: DiceEvent[],
 ): Anthropic.ToolResultBlockParam {

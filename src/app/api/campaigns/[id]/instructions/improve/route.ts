@@ -3,8 +3,9 @@ import { z } from "zod";
 
 import { badRequest, notFound, parseId, unauthorized } from "@/lib/api";
 import { getCampaign } from "@/lib/queries";
+import { createLlmClient } from "@/lib/llm";
 import { getUserId } from "@/lib/session";
-import { AiConfigError, createAnthropicClient, getAiSettings } from "@/lib/settings";
+import { AiConfigError, chatModel, getAiSettings } from "@/lib/settings";
 
 const bodySchema = z.object({ text: z.string().trim().min(1) });
 
@@ -45,11 +46,11 @@ export async function POST(
 
   try {
     const settings = await getAiSettings(userId);
-    const client = createAnthropicClient(settings);
+    const client = createLlmClient(settings);
 
-    const message = await client.messages.create({
-      model: settings.modelImprove,
-      max_tokens: 4000,
+    const message = await client.chat({
+      model: chatModel(settings, "improve"),
+      maxTokens: 4000,
       system: IMPROVE_SYSTEM,
       messages: [{ role: "user", content: parsed.data.text }],
     });

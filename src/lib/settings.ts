@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { eq } from "drizzle-orm";
 
 // Import relativi (niente alias @/): questo modulo è usato anche dal
@@ -8,9 +7,11 @@ import { userSettings } from "../db/schema";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
 
+export type ChatProvider = "anthropic" | "ollama";
 export type EmbeddingsProvider = "voyage" | "ollama";
 
 export type AiSettings = {
+  chatProvider: ChatProvider;
   anthropicApiKey: string | null;
   modelGm: string;
   modelSummary: string;
@@ -18,6 +19,8 @@ export type AiSettings = {
   embeddingsProvider: EmbeddingsProvider;
   voyageApiKey: string | null;
   ollamaHost: string | null;
+  ollamaApiKey: string | null;
+  ollamaChatModel: string | null;
   ollamaEmbedModel: string | null;
 };
 
@@ -36,6 +39,10 @@ export async function getAiSettings(userId?: string): Promise<AiSettings> {
     : (await db.select().from(userSettings).limit(1))[0];
 
   return {
+    chatProvider:
+      row?.chatProvider ??
+      (process.env.CHAT_PROVIDER as ChatProvider | undefined) ??
+      "anthropic",
     anthropicApiKey:
       row?.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY ?? null,
     modelGm:
@@ -54,16 +61,33 @@ export async function getAiSettings(userId?: string): Promise<AiSettings> {
       "voyage",
     voyageApiKey: row?.voyageApiKey ?? process.env.VOYAGE_API_KEY ?? null,
     ollamaHost: row?.ollamaHost ?? process.env.OLLAMA_HOST ?? null,
+    ollamaApiKey: row?.ollamaApiKey ?? process.env.OLLAMA_API_KEY ?? null,
+    ollamaChatModel:
+      row?.ollamaChatModel ?? process.env.OLLAMA_CHAT_MODEL ?? null,
     ollamaEmbedModel:
       row?.ollamaEmbedModel ?? process.env.OLLAMA_EMBED_MODEL ?? null,
   };
 }
 
-export function createAnthropicClient(settings: AiSettings): Anthropic {
-  if (!settings.anthropicApiKey) {
-    throw new AiConfigError(
-      "Chiave API Anthropic non configurata: aggiungila nella pagina Impostazioni.",
-    );
+export type ChatTask = "gm" | "summary" | "improve";
+
+// Modello effettivo per una funzione dell'app, secondo il provider chat:
+// con Claude ogni funzione ha il suo modello, con Ollama se ne usa uno solo.
+export function chatModel(settings: AiSettings, task: ChatTask): string {
+  if (settings.chatProvider === "ollama") {
+    if (!settings.ollamaChatModel) {
+      throw new AiConfigError(
+        "Modello Ollama non configurato: indicalo nella pagina Impostazioni.",
+      );
+    }
+    return settings.ollamaChatModel;
   }
-  return new Anthropic({ apiKey: settings.anthropicApiKey });
+  switch (task) {
+    case "gm":
+      return settings.modelGm;
+    case "summary":
+      return settings.modelSummary;
+    case "improve":
+      return settings.modelImprove;
+  }
 }

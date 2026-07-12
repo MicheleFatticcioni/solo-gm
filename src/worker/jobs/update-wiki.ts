@@ -3,7 +3,8 @@ import { and, desc, eq, sql } from "drizzle-orm";
 
 import { db } from "../../db";
 import { campaigns, campaignSummaries, messages } from "../../db/schema";
-import { createAnthropicClient, getAiSettings } from "../../lib/settings";
+import { createLlmClient } from "../../lib/llm";
+import { chatModel, getAiSettings } from "../../lib/settings";
 import {
   buildWikiIndex,
   CORE_SLUG,
@@ -176,7 +177,8 @@ export async function updateWiki(campaignId: string): Promise<void> {
 
     // L'app è single-tenant: le impostazioni sono quelle dell'unico utente.
     const settings = await getAiSettings();
-    const client = createAnthropicClient(settings);
+    const client = createLlmClient(settings);
+    const model = chatModel(settings, "summary");
 
     const conversation: Anthropic.MessageParam[] = [
       {
@@ -187,17 +189,16 @@ export async function updateWiki(campaignId: string): Promise<void> {
 
     let changes = 0;
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      const stream = client.messages.stream({
-        model: settings.modelSummary,
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
+      const final = await client.chat({
+        model,
+        maxTokens: 16000,
+        thinking: true,
         system: ARCHIVIST_SYSTEM,
         messages: conversation,
         tools: [upsertPageTool, deletePageTool, readPageTool],
       });
-      const final = await stream.finalMessage();
 
-      if (final.stop_reason !== "tool_use") break;
+      if (final.stopReason !== "tool_use") break;
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const block of final.content) {
@@ -234,7 +235,7 @@ type ArchivistToolOutcome = { ok: boolean; block: Anthropic.ToolResultBlockParam
 
 async function executeArchivistTool(
   campaignId: string,
-  block: Anthropic.ToolUseBlock,
+  block: Anthropic.ToolUseBlockParam,
 ): Promise<ArchivistToolOutcome> {
   const fail = (message: string): ArchivistToolOutcome => ({
     ok: false,
