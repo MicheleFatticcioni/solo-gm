@@ -1,5 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   customType,
   index,
@@ -10,6 +11,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
@@ -38,6 +40,16 @@ export const documentStatusEnum = pgEnum("document_status", [
 ]);
 
 export const messageRoleEnum = pgEnum("message_role", ["user", "assistant"]);
+
+export const wikiFolderEnum = pgEnum("wiki_folder", [
+  "core",
+  "pg",
+  "npc",
+  "luoghi",
+  "eventi",
+  "storia",
+  "note",
+]);
 
 export const embeddingsProviderEnum = pgEnum("embeddings_provider", [
   "voyage",
@@ -128,6 +140,12 @@ export const campaigns = pgTable("campaigns", {
   gameSystem: text("game_system").notNull(),
   // Indicazioni libere del giocatore su come l'AI deve condurre la campagna.
   aiInstructions: text("ai_instructions"),
+  // Watermark della wiki: le pagine coprono la storia fino a questo
+  // messaggio incluso. Riferimento lazy e tipo esplicito AnyPgColumn:
+  // campaigns e messages si citano a vicenda (ciclo).
+  wikiCoversUntilMessageId: uuid("wiki_covers_until_message_id").references(
+    (): AnyPgColumn => messages.id,
+  ),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
 });
@@ -162,6 +180,35 @@ export const messages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("messages_campaign_id_created_at_idx").on(t.campaignId, t.createdAt)],
+);
+
+// Wiki della campagna: una pagina per entità (PG, PNG, luogo, ...),
+// aggiornata IN PLACE (la storia integrale resta nei messages).
+// title/description sono colonne, non frontmatter nel content: la
+// description alimenta l'indice con cui il GM sceglie cosa leggere.
+export const wikiPages = pgTable(
+  "wiki_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => campaigns.id, { onDelete: "cascade" }),
+    folder: wikiFolderEnum("folder").notNull(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("wiki_pages_campaign_folder_slug_idx").on(
+      t.campaignId,
+      t.folder,
+      t.slug,
+    ),
+    index("wiki_pages_campaign_folder_idx").on(t.campaignId, t.folder),
+  ],
 );
 
 // Append-only: il summary più recente per campagna è quello attivo

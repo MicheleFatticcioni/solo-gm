@@ -5,16 +5,16 @@ import { StatusBadge } from "@/components/status-badge";
 import { parseId } from "@/lib/api";
 import { docTypeLabels } from "@/lib/format";
 import {
-  getActiveSummary,
   getCampaign,
   listCampaignDocuments,
   listLibrary,
 } from "@/lib/queries";
 import { getUserId } from "@/lib/session";
+import { getWikiPages, WIKI_FOLDERS, WIKI_FOLDER_LABELS } from "@/lib/wiki";
 
 import { CampaignHeader } from "./campaign-header";
 import { CampaignInstructions } from "./campaign-instructions";
-import { CampaignSummary } from "./campaign-summary";
+import { CampaignWiki } from "./campaign-wiki";
 import { ManageDocuments } from "./manage-documents";
 
 export default async function CampaignPage({
@@ -31,11 +31,24 @@ export default async function CampaignPage({
   const campaign = await getCampaign(userId, id);
   if (!campaign) notFound();
 
-  const [associated, library, summary] = await Promise.all([
+  const [associated, library, wikiPages] = await Promise.all([
     listCampaignDocuments(id),
     listLibrary(userId),
-    getActiveSummary(id),
+    getWikiPages(id),
   ]);
+
+  const wikiFolders = WIKI_FOLDERS.map((folder) => ({
+    folder,
+    label: WIKI_FOLDER_LABELS[folder],
+    pages: wikiPages
+      .filter((p) => p.folder === folder)
+      .map((p) => ({
+        slug: p.slug,
+        title: p.title,
+        description: p.description,
+        updatedAt: p.updatedAt.toISOString(),
+      })),
+  }));
 
   const hasReadyDocument = associated.some((doc) => doc.status === "ready");
 
@@ -123,17 +136,7 @@ export default async function CampaignPage({
         initialInstructions={campaign.aiInstructions}
       />
 
-      <CampaignSummary
-        campaignId={campaign.id}
-        initialSummary={
-          summary && {
-            id: summary.id,
-            content: summary.content,
-            isUserEdited: summary.isUserEdited,
-            createdAt: summary.createdAt.toISOString(),
-          }
-        }
-      />
+      <CampaignWiki campaignId={campaign.id} initialFolders={wikiFolders} />
     </div>
   );
 }

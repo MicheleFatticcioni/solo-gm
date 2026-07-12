@@ -4,13 +4,13 @@ import { PgBoss } from "pg-boss";
 import {
   PROCESS_PDF_QUEUE,
   PROCESS_PDF_QUEUE_OPTIONS,
-  UPDATE_SUMMARY_QUEUE,
-  UPDATE_SUMMARY_QUEUE_OPTIONS,
+  UPDATE_WIKI_QUEUE,
+  UPDATE_WIKI_QUEUE_OPTIONS,
   type ProcessPdfJobData,
-  type UpdateSummaryJobData,
+  type UpdateWikiJobData,
 } from "../lib/queue";
 import { processPdf } from "./jobs/process-pdf";
-import { updateSummary } from "./jobs/update-summary";
+import { updateWiki } from "./jobs/update-wiki";
 
 async function main() {
   if (!process.env.DATABASE_URL) {
@@ -24,7 +24,7 @@ async function main() {
 
   await boss.start();
   await boss.createQueue(PROCESS_PDF_QUEUE, PROCESS_PDF_QUEUE_OPTIONS);
-  await boss.createQueue(UPDATE_SUMMARY_QUEUE, UPDATE_SUMMARY_QUEUE_OPTIONS);
+  await boss.createQueue(UPDATE_WIKI_QUEUE, UPDATE_WIKI_QUEUE_OPTIONS);
 
   await boss.work<ProcessPdfJobData>(
     PROCESS_PDF_QUEUE,
@@ -37,10 +37,10 @@ async function main() {
     },
   );
 
-  await boss.work<UpdateSummaryJobData>(UPDATE_SUMMARY_QUEUE, async (jobs) => {
+  await boss.work<UpdateWikiJobData>(UPDATE_WIKI_QUEUE, async (jobs) => {
     for (const job of jobs) {
-      console.log(`update-summary: avvio campagna ${job.data.campaignId}`);
-      await updateSummary(job.data.campaignId);
+      console.log(`update-wiki: avvio campagna ${job.data.campaignId}`);
+      await updateWiki(job.data.campaignId);
     }
   });
 

@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { campaignDocuments, campaigns, documents, messages } from "@/db/schema";
 import { getActiveSummary } from "@/lib/queries";
 import { buildRetrievalQuery, retrieve, type RetrievedChunk } from "@/lib/rag";
+import { buildMemoryBlock } from "@/lib/wiki";
 
 // Cap sulla storia recente inclusa nel prompt (oltre il riassunto).
 const HISTORY_MAX_MESSAGES = 20;
@@ -38,8 +39,13 @@ function gmInstructions(gameSystem: string, aiInstructions: string | null): stri
 - Quando serve un tiro di dado, usa SEMPRE lo strumento roll_dice. Non inventare mai il risultato di un tiro, né chiedere al giocatore di tirare al posto tuo.
 - Dichiara prima cosa tiri e perché, poi interpreta il risultato nella fiction.
 
+## Memoria e wiki
+- La tua memoria a lungo termine è nel blocco "Memoria della campagna": panoramica, note temporanee e indice della wiki. La panoramica e le note le hai già: NON servono letture per usarle.
+- Quando la scena coinvolge un PNG, un luogo o un evento presente nell'indice, leggi la sua pagina con lo strumento read_wiki_page PRIMA di descriverlo o farlo agire: i fatti scritti nelle pagine prevalgono sulla tua memoria implicita.
+- Leggi solo le pagine rilevanti per la scena corrente, al massimo 2-3 per turno; non rileggere pagine già lette in questo turno.
+
 ## Coerenza
-- Mantieni la coerenza con il riassunto della campagna e con la storia recente: nomi, luoghi, ferite, oggetti, promesse fatte dai PNG.
+- Mantieni la coerenza con la memoria della campagna (panoramica, note, pagine wiki lette) e con la storia recente: nomi, luoghi, ferite, oggetti, promesse fatte dai PNG.
 - Se il giocatore contraddice fatti stabiliti, chiedigli conferma invece di riscrivere silenziosamente la storia.
 
 ## Chiusura del turno
@@ -72,7 +78,7 @@ export async function buildGmContext(
     .where(eq(campaigns.id, campaignId));
   if (!campaign) throw new Error(`Campagna non trovata: ${campaignId}`);
 
-  const [docs, summary] = await Promise.all([
+  const [docs, summary, wikiMemory] = await Promise.all([
     db
       .select({
         title: documents.title,
@@ -89,9 +95,15 @@ export async function buildGmContext(
       )
       .orderBy(documents.title),
     getActiveSummary(campaignId),
+    buildMemoryBlock(campaignId),
   ]);
 
-  const history = await getRecentHistory(campaignId, summary?.coversUntilMessageId);
+  // La storia in chiaro parte dal watermark della wiki; finché la wiki
+  // non è popolata vale quello del riassunto legacy (modulo f).
+  const history = await getRecentHistory(
+    campaignId,
+    campaign.wikiCoversUntilMessageId ?? summary?.coversUntilMessageId,
+  );
 
   const retrievalQuery = buildRetrievalQuery(
     userMessage,
@@ -120,10 +132,15 @@ export async function buildGmContext(
       text: `## Documenti della campagna\n\n${catalog}`,
       cache_control: { type: "ephemeral" },
     },
+    // Nucleo della memoria ibrida (modulo g): panoramica + note + indice
+    // wiki. Cambia solo quando worker o utente scrivono pagine, quindi
+    // la cache regge tra turni consecutivi. Fallback: riassunto legacy.
     {
       type: "text",
-      text: `## Riassunto della campagna\n\n${
-        summary?.content ?? "Nuova campagna, nessun evento precedente."
+      text: `## Memoria della campagna\n\n${
+        wikiMemory ??
+        summary?.content ??
+        "Nuova campagna, nessun evento precedente."
       }`,
       cache_control: { type: "ephemeral" },
     },
