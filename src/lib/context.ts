@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { campaignDocuments, campaigns, documents, messages } from "@/db/schema";
@@ -7,10 +7,17 @@ import { getActiveSummary } from "@/lib/queries";
 import { buildRetrievalQuery, retrieve, type RetrievedChunk } from "@/lib/rag";
 import { buildMemoryBlock } from "@/lib/wiki";
 
-// Cap sulla storia recente inclusa nel prompt (oltre il riassunto).
-const HISTORY_MAX_MESSAGES = 20;
-// ~8000 token stimati a chars/3.5.
-const HISTORY_MAX_CHARS = 8000 * 3.5;
+// La storia in chiaro copre TUTTO ciò che segue il watermark della
+// wiki: di quegli eventi è l'unica copia (la wiki non li ha ancora
+// archiviati), quindi non può avere buchi. In condizioni normali il
+// backlog resta piccolo (WIKI_TAIL_GUARD + WIKI_MIN_NEW_MESSAGES
+// messaggi al massimo, vedi lib/wiki); questi cap sono solo un
+// paracadute contro i casi patologici (job update-wiki fermo o in forte
+// ritardo). Quando tagliano davvero aprono un buco di memoria, e lo si
+// segnala nel log.
+const HISTORY_MAX_MESSAGES = 30;
+// ~12000 token stimati a chars/3.5.
+const HISTORY_MAX_CHARS = 12000 * 3.5;
 
 export type GmContext = {
   system: Anthropic.TextBlockParam[];
@@ -21,7 +28,10 @@ export type GmContext = {
 // Istruzioni GM fisse. Interpolazioni ammesse solo se stabili per
 // campagna ({game_system} e le istruzioni utente) — qualsiasi contenuto
 // volatile qui distruggerebbe il prompt caching (prefix-match).
-function gmInstructions(gameSystem: string, aiInstructions: string | null): string {
+function gmInstructions(
+  gameSystem: string,
+  aiInstructions: string | null,
+): string {
   const base = `Sei il Game Master di una partita di gioco di ruolo in solitaria. Conduci la partita nello stile e con le regole del sistema "${gameSystem}", rispettandone il tono, il ritmo e le convenzioni.
 
 ## Come conduci la scena
@@ -152,23 +162,29 @@ export async function buildGmContext(
   // metadata del messaggio (modulo e), da qui il campo `retrieved`.
   const messageParams: Anthropic.MessageParam[] = [
     ...history.map((m) => ({ role: m.role, content: m.content })),
-    { role: "user" as const, content: `${formatExcerpts(retrieved)}\n\n${userMessage}` },
+    {
+      role: "user" as const,
+      content: `${formatExcerpts(retrieved)}\n\n${userMessage}`,
+    },
   ];
 
   return { system, messages: messageParams, retrieved };
 }
 
-// Ultimi messaggi successivi a quello coperto dal riassunto attivo,
-// con doppio cap: numero di messaggi e token stimati (chars/3.5).
+// Tutti i messaggi successivi a quello coperto dalla wiki (o dal
+// riassunto legacy), con i cap paracadute su numero e caratteri.
 async function getRecentHistory(
   campaignId: string,
   coversUntilMessageId: string | null | undefined,
 ) {
+  // Confronto di tupla (created_at, id), lo stesso di update-wiki: sul
+  // solo created_at un messaggio con timestamp identico al watermark
+  // sparirebbe dalla storia senza essere mai stato archiviato.
   const afterSummary = coversUntilMessageId
-    ? gt(
-        messages.createdAt,
-        sql`(select created_at from messages where id = ${coversUntilMessageId})`,
-      )
+    ? sql`(${messages.createdAt}, ${messages.id}) > (
+        select created_at, id from messages
+        where id = ${coversUntilMessageId}
+      )`
     : undefined;
 
   const recent = await db
@@ -179,7 +195,7 @@ async function getRecentHistory(
     })
     .from(messages)
     .where(and(eq(messages.campaignId, campaignId), afterSummary))
-    .orderBy(desc(messages.createdAt))
+    .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(HISTORY_MAX_MESSAGES);
 
   // recent è dal più nuovo al più vecchio: si accumula finché il budget
@@ -192,6 +208,17 @@ async function getRecentHistory(
     window.push(message);
   }
   window.reverse();
+
+  // Il paracadute ha tagliato (o la query ha saturato il limit): c'è
+  // storia che il GM non vede né in wiki né in contesto. Non deve
+  // succedere in condizioni normali.
+  if (window.length < recent.length || recent.length === HISTORY_MAX_MESSAGES) {
+    console.warn(
+      `context: campagna ${campaignId}, backlog oltre il paracadute della storia ` +
+        `(in contesto ${window.length} messaggi su ${recent.length}+ dopo il watermark): ` +
+        "possibile buco di memoria, verificare che il job update-wiki giri",
+    );
+  }
 
   // L'API Anthropic richiede che il primo messaggio sia del ruolo user:
   // se il taglio della finestra lascia in testa un turno assistant, lo

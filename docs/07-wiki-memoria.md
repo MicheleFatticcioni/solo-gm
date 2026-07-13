@@ -81,19 +81,19 @@ Le pagine si aggiornano **in place** (a differenza dei summary append-only): la 
 - Aggiungere `readWikiPageTool` ai tools; nel loop agentico eseguire `read_wiki_page` (lettura DB; pagina inesistente → `tool_result` con `is_error` e suggerimento di consultare l'indice).
 - Nuovo evento SSE `{ type: "wiki"; folder; slug; title }` così la UI mostra "consulta la wiki: …". Salvare le letture nei metadata del messaggio assistant.
 - `MAX_ITERATIONS` da 5 a 8 (dadi + letture wiki nello stesso turno).
-- `maybeTriggerSummary` → `maybeTriggerWikiUpdate`: soglia token sui messaggi dopo il watermark wiki, enqueue di `update-wiki`.
+- `maybeTriggerSummary` → `maybeTriggerWikiUpdate`: conteggio dei messaggi dopo il watermark wiki; enqueue di `update-wiki` quando quelli archiviabili (oltre la guardia di coda) raggiungono la soglia minima del job (costanti condivise `WIKI_TAIL_GUARD`/`WIKI_MIN_NEW_MESSAGES` in `lib/wiki`). Niente soglia a token: sarebbe più larga della storia in chiaro e aprirebbe un buco di messaggi invisibili al GM.
 
 ### 5. Job worker `update-wiki` (sostituisce `update-summary`)
 
 `src/worker/jobs/update-wiki.ts`, coda pg-boss `update-wiki` (policy `stately`, `singletonKey` = campaignId, retry 2). Il vecchio job e la vecchia coda si rimuovono dal codice (la tabella `campaign_summaries` resta).
 
-1. Watermark = `campaigns.wiki_covers_until_message_id`; carica i messaggi successivi. **Guardia**: escludi gli ultimi ~6 (restano in chiaro in chat); se ne restano meno di ~10, esci. Prima esecuzione (watermark NULL e wiki vuota): usa il riassunto legacy attivo come materiale di seed oltre alla trascrizione.
+1. Watermark = `campaigns.wiki_covers_until_message_id`; carica i messaggi successivi. **Guardia**: escludi gli ultimi ~4 (restano in chiaro in chat) e chiudi la finestra su un turno del GM, così la storia in chiaro riparte da un messaggio user; se ne restano meno di ~6, esci (costanti condivise `WIKI_TAIL_GUARD`/`WIKI_MIN_NEW_MESSAGES` in `lib/wiki`). Il backlog non archiviato non apre mai buchi: la storia in chiaro della chat è ancorata al watermark e lo copre tutto (i cap di `context.ts` sono solo un paracadute, con warning nel log quando tagliano). Prima esecuzione (watermark NULL e wiki vuota): usa il riassunto legacy attivo come materiale di seed oltre alla trascrizione.
 2. Loop agentico "archivista" con tools:
    - `upsert_wiki_page { folder, slug, title, description, content }`
    - `delete_wiki_page { folder, slug }` (per le note scadute)
    - `read_wiki_page { folder, slug }`
-   In input: indice completo + contenuto di core e note + trascrizione nuovi eventi (`Giocatore:`/`GM:`). Istruzioni chiave: non inventare; una entità = una pagina (aggiorna, non duplicare); `core/panoramica` va sempre mantenuta aggiornata e sintetica (~600 token max); descrizioni di una riga pensate per scegliere dall'indice; potare le note temporanee superate; leggere una pagina prima di riscriverla se non è già nell'input; comprimere gli eventi remoti più dei recenti. Max ~20 iterazioni.
-3. A fine loop aggiorna il watermark all'ultimo messaggio della finestra. Errori: logga e lascia fallire (retry pg-boss); un fallimento non blocca mai la chat.
+   In input: indice completo + contenuto di core e note + trascrizione nuovi eventi (`Giocatore:`/`GM:`). Istruzioni chiave: non inventare; una entità = una pagina (aggiorna, non duplicare); `core/panoramica` va sempre mantenuta aggiornata e densa di fatti concreti, inclusi scena in corso e ultimi sviluppi (~800 token max); descrizioni di una riga pensate per scegliere dall'indice; potare le note temporanee superate; leggere una pagina prima di riscriverla se non è già nell'input; comprimere gli eventi remoti più dei recenti. Max ~20 iterazioni.
+3. A fine loop aggiorna il watermark all'ultimo messaggio della finestra; se durante il run (lento con i modelli locali) si è già riaccumulata una finestra archiviabile, riaccoda subito il job invece di aspettare il turno successivo. Errori: logga e lascia fallire (retry pg-boss); un fallimento non blocca mai la chat.
 4. Modello: `settings.modelSummary` (riusa l'impostazione esistente).
 
 ### 6. API wiki

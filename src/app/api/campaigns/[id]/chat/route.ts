@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -16,6 +16,8 @@ import {
   getWikiPage,
   isWikiFolder,
   readWikiPageTool,
+  WIKI_MIN_NEW_MESSAGES,
+  WIKI_TAIL_GUARD,
   type ReadWikiPageInput,
 } from "@/lib/wiki";
 
@@ -252,16 +254,14 @@ function executeRollDice(
   }
 }
 
-// Token stimati quando input/output non sono salvati (messaggi user).
-const CHARS_PER_TOKEN = 3.5;
-
-// Se la storia non coperta dalla wiki supera la soglia, accoda
-// l'aggiornamento della wiki (job del modulo g). Finché la wiki non è
-// popolata il watermark è quello del riassunto legacy: alla prima
+// Se i messaggi archiviabili (oltre la coda che resta in chiaro) hanno
+// raggiunto la soglia minima del job, accoda l'aggiornamento della wiki
+// (job del modulo g). Stesso criterio a conteggio del job stesso: una
+// soglia a token più larga della storia in chiaro aprirebbe un buco di
+// messaggi che il GM non vede né in wiki né in contesto. Finché la wiki
+// non è popolata il watermark è quello del riassunto legacy: alla prima
 // esecuzione il job usa il riassunto come seed.
 async function maybeTriggerWikiUpdate(campaignId: string): Promise<void> {
-  const threshold = Number(process.env.SUMMARY_TRIGGER_TOKENS ?? 25000);
-
   const [campaign] = await db
     .select({ wikiCoversUntilMessageId: campaigns.wikiCoversUntilMessageId })
     .from(campaigns)
@@ -278,28 +278,20 @@ async function maybeTriggerWikiUpdate(campaignId: string): Promise<void> {
     watermark = summary?.coversUntilMessageId ?? null;
   }
 
+  // Confronto di tupla (created_at, id), lo stesso del job update-wiki.
   const afterWatermark = watermark
-    ? gt(
-        messages.createdAt,
-        sql`(select created_at from messages where id = ${watermark})`,
-      )
+    ? sql`(${messages.createdAt}, ${messages.id}) > (
+        select created_at, id from messages
+        where id = ${watermark}
+      )`
     : undefined;
 
-  const rows = await db
-    .select({
-      inputTokens: messages.inputTokens,
-      outputTokens: messages.outputTokens,
-      contentLength: sql<number>`length(${messages.content})`,
-    })
+  const [{ backlog }] = await db
+    .select({ backlog: sql<number>`count(*)::int` })
     .from(messages)
     .where(and(eq(messages.campaignId, campaignId), afterWatermark));
 
-  const accumulated = rows.reduce((sum, row) => {
-    const saved = (row.inputTokens ?? 0) + (row.outputTokens ?? 0);
-    return sum + (saved > 0 ? saved : Math.ceil(row.contentLength / CHARS_PER_TOKEN));
-  }, 0);
-
-  if (accumulated > threshold) {
+  if (backlog - WIKI_TAIL_GUARD >= WIKI_MIN_NEW_MESSAGES) {
     await enqueueUpdateWiki(campaignId);
   }
 }

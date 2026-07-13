@@ -34,6 +34,17 @@ export const WIKI_FOLDER_LABELS: Record<WikiFolder, string> = {
 
 export const CORE_SLUG = "panoramica";
 
+// Cadenza dell'archiviazione, condivisa tra il job update-wiki e il
+// trigger della chat. Gli ultimi WIKI_TAIL_GUARD messaggi restano
+// sempre fuori dalla finestra archiviata; il job vale la pena solo
+// quando i messaggi archiviabili sono almeno WIKI_MIN_NEW_MESSAGES.
+// Il backlog non archiviato oscilla quindi tra TAIL_GUARD e
+// TAIL_GUARD + MIN_NEW_MESSAGES messaggi (più quelli arrivati durante
+// un run): la storia recente di context.ts li copre tutti, perché è
+// ancorata al watermark e non a un cap fisso.
+export const WIKI_TAIL_GUARD = 4;
+export const WIKI_MIN_NEW_MESSAGES = 6;
+
 const SLUG_RE = /^[a-z0-9-]{1,64}$/;
 
 export function isWikiFolder(value: string): value is WikiFolder {
