@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -9,12 +9,15 @@ import { buildGmContext } from "@/lib/context";
 import { rollDice, rollDiceTool, type RollDiceInput } from "@/lib/dice";
 import { getCampaign } from "@/lib/queries";
 import { enqueueUpdateWiki } from "@/lib/queue";
+import { createLlmClient } from "@/lib/llm";
 import { getUserId } from "@/lib/session";
-import { AiConfigError, createAnthropicClient, getAiSettings } from "@/lib/settings";
+import { AiConfigError, chatModel, getAiSettings } from "@/lib/settings";
 import {
   getWikiPage,
   isWikiFolder,
   readWikiPageTool,
+  WIKI_MIN_NEW_MESSAGES,
+  WIKI_TAIL_GUARD,
   type ReadWikiPageInput,
 } from "@/lib/wiki";
 
@@ -101,15 +104,16 @@ export async function POST(
   });
 }
 
-// Loop agentico manuale con streaming: il tool runner del SDK non basta
-// perché i text_delta vanno inoltrati al client man mano che arrivano.
+// Loop agentico manuale con streaming: i text_delta vanno inoltrati al
+// client man mano che arrivano, qualunque sia il provider.
 async function runGmTurn(
   campaignId: string,
   context: Awaited<ReturnType<typeof buildGmContext>>,
   settings: Awaited<ReturnType<typeof getAiSettings>>,
   send: (event: ChatEvent) => void,
 ): Promise<string> {
-  const client = createAnthropicClient(settings);
+  const client = createLlmClient(settings);
+  const model = chatModel(settings, "gm");
   const conversation = [...context.messages];
   const textParts: string[] = [];
   const dice: DiceEvent[] = [];
@@ -118,32 +122,25 @@ async function runGmTurn(
   let outputTokens = 0;
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-    const stream = client.messages.stream({
-      model: settings.modelGm,
-      max_tokens: 8000,
-      thinking: { type: "adaptive" },
-      system: context.system,
-      messages: conversation,
-      tools: [rollDiceTool, readWikiPageTool],
-    });
+    const final = await client.chat(
+      {
+        model,
+        maxTokens: 8000,
+        thinking: true,
+        system: context.system,
+        messages: conversation,
+        tools: [rollDiceTool, readWikiPageTool],
+      },
+      (text) => send({ type: "text", text }),
+    );
 
-    for await (const event of stream) {
-      if (
-        event.type === "content_block_delta" &&
-        event.delta.type === "text_delta"
-      ) {
-        send({ type: "text", text: event.delta.text });
-      }
-    }
-
-    const final = await stream.finalMessage();
-    inputTokens += final.usage.input_tokens;
-    outputTokens += final.usage.output_tokens;
+    inputTokens += final.usage.inputTokens;
+    outputTokens += final.usage.outputTokens;
     for (const block of final.content) {
       if (block.type === "text") textParts.push(block.text);
     }
 
-    if (final.stop_reason !== "tool_use") break;
+    if (final.stopReason !== "tool_use") break;
 
     // Turno assistant completo (thinking/testo/tool_use inclusi) + un
     // SOLO messaggio user con tutti i tool_result, poi si riapre lo stream.
@@ -194,7 +191,7 @@ async function runGmTurn(
 // non è un errore fatale, si rimanda il modello all'indice.
 async function executeReadWikiPage(
   campaignId: string,
-  block: Anthropic.ToolUseBlock,
+  block: Anthropic.ToolUseBlockParam,
   send: (event: ChatEvent) => void,
   wikiReads: WikiReadEvent[],
 ): Promise<Anthropic.ToolResultBlockParam> {
@@ -226,7 +223,7 @@ async function executeReadWikiPage(
 }
 
 function executeRollDice(
-  block: Anthropic.ToolUseBlock,
+  block: Anthropic.ToolUseBlockParam,
   send: (event: ChatEvent) => void,
   dice: DiceEvent[],
 ): Anthropic.ToolResultBlockParam {
@@ -257,16 +254,14 @@ function executeRollDice(
   }
 }
 
-// Token stimati quando input/output non sono salvati (messaggi user).
-const CHARS_PER_TOKEN = 3.5;
-
-// Se la storia non coperta dalla wiki supera la soglia, accoda
-// l'aggiornamento della wiki (job del modulo g). Finché la wiki non è
-// popolata il watermark è quello del riassunto legacy: alla prima
+// Se i messaggi archiviabili (oltre la coda che resta in chiaro) hanno
+// raggiunto la soglia minima del job, accoda l'aggiornamento della wiki
+// (job del modulo g). Stesso criterio a conteggio del job stesso: una
+// soglia a token più larga della storia in chiaro aprirebbe un buco di
+// messaggi che il GM non vede né in wiki né in contesto. Finché la wiki
+// non è popolata il watermark è quello del riassunto legacy: alla prima
 // esecuzione il job usa il riassunto come seed.
 async function maybeTriggerWikiUpdate(campaignId: string): Promise<void> {
-  const threshold = Number(process.env.SUMMARY_TRIGGER_TOKENS ?? 25000);
-
   const [campaign] = await db
     .select({ wikiCoversUntilMessageId: campaigns.wikiCoversUntilMessageId })
     .from(campaigns)
@@ -283,28 +278,20 @@ async function maybeTriggerWikiUpdate(campaignId: string): Promise<void> {
     watermark = summary?.coversUntilMessageId ?? null;
   }
 
+  // Confronto di tupla (created_at, id), lo stesso del job update-wiki.
   const afterWatermark = watermark
-    ? gt(
-        messages.createdAt,
-        sql`(select created_at from messages where id = ${watermark})`,
-      )
+    ? sql`(${messages.createdAt}, ${messages.id}) > (
+        select created_at, id from messages
+        where id = ${watermark}
+      )`
     : undefined;
 
-  const rows = await db
-    .select({
-      inputTokens: messages.inputTokens,
-      outputTokens: messages.outputTokens,
-      contentLength: sql<number>`length(${messages.content})`,
-    })
+  const [{ backlog }] = await db
+    .select({ backlog: sql<number>`count(*)::int` })
     .from(messages)
     .where(and(eq(messages.campaignId, campaignId), afterWatermark));
 
-  const accumulated = rows.reduce((sum, row) => {
-    const saved = (row.inputTokens ?? 0) + (row.outputTokens ?? 0);
-    return sum + (saved > 0 ? saved : Math.ceil(row.contentLength / CHARS_PER_TOKEN));
-  }, 0);
-
-  if (accumulated > threshold) {
+  if (backlog - WIKI_TAIL_GUARD >= WIKI_MIN_NEW_MESSAGES) {
     await enqueueUpdateWiki(campaignId);
   }
 }

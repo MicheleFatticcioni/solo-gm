@@ -56,6 +56,8 @@ export const embeddingsProviderEnum = pgEnum("embeddings_provider", [
   "ollama",
 ]);
 
+export const chatProviderEnum = pgEnum("chat_provider", ["anthropic", "ollama"]);
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   firstName: text("first_name").notNull(),
@@ -76,6 +78,9 @@ export const userSettings = pgTable("user_settings", {
     .notNull()
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Provider delle interazioni chat (partita, riassunti, migliora
+  // istruzioni): Claude oppure Ollama (locale o cloud).
+  chatProvider: chatProviderEnum("chat_provider"),
   anthropicApiKey: text("anthropic_api_key"),
   modelGm: text("model_gm"),
   modelSummary: text("model_summary"),
@@ -83,6 +88,10 @@ export const userSettings = pgTable("user_settings", {
   embeddingsProvider: embeddingsProviderEnum("embeddings_provider"),
   voyageApiKey: text("voyage_api_key"),
   ollamaHost: text("ollama_host"),
+  // Chiave API di Ollama: serve solo per Ollama cloud (host ollama.com).
+  ollamaApiKey: text("ollama_api_key"),
+  // Modello chat usato per tutte le funzioni quando il provider è Ollama.
+  ollamaChatModel: text("ollama_chat_model"),
   ollamaEmbedModel: text("ollama_embed_model"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

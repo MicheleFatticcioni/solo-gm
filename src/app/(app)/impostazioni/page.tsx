@@ -58,6 +58,10 @@ export default async function ImpostazioniPage() {
           d&apos;ambiente, che restano solo come fallback.
         </p>
         <AiSettingsForm
+          chatProvider={{
+            value: row?.chatProvider ?? null,
+            fallback: process.env.CHAT_PROVIDER ?? "anthropic",
+          }}
           anthropicKey={keyStatus(row?.anthropicApiKey, process.env.ANTHROPIC_API_KEY)}
           voyageKey={keyStatus(row?.voyageApiKey, process.env.VOYAGE_API_KEY)}
           models={{
@@ -81,6 +85,11 @@ export default async function ImpostazioniPage() {
           ollamaHost={{
             value: row?.ollamaHost ?? null,
             fallback: process.env.OLLAMA_HOST ?? null,
+          }}
+          ollamaApiKey={keyStatus(row?.ollamaApiKey, process.env.OLLAMA_API_KEY)}
+          ollamaChatModel={{
+            value: row?.ollamaChatModel ?? null,
+            fallback: process.env.OLLAMA_CHAT_MODEL ?? null,
           }}
           ollamaEmbedModel={{
             value: row?.ollamaEmbedModel ?? null,

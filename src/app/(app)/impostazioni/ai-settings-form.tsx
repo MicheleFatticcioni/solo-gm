@@ -22,6 +22,14 @@ const ANTHROPIC_MODELS = [
 
 const OLLAMA_EMBED_MODELS = ["bge-m3", "mxbai-embed-large"];
 
+const OLLAMA_CHAT_MODELS = [
+  "llama3.3",
+  "qwen3",
+  "gpt-oss:20b",
+  "gpt-oss:120b-cloud",
+  "deepseek-v3.1:671b-cloud",
+];
+
 function keyStatusLabel(status: KeyStatus): string {
   if (!status.source) return "Non configurata";
   const origin =
@@ -100,18 +108,24 @@ function ModelField({
 }
 
 export function AiSettingsForm({
+  chatProvider,
   anthropicKey,
   voyageKey,
   models,
   embeddingsProvider,
   ollamaHost,
+  ollamaApiKey,
+  ollamaChatModel,
   ollamaEmbedModel,
 }: {
+  chatProvider: Overridable;
   anthropicKey: KeyStatus;
   voyageKey: KeyStatus;
   models: { gm: Overridable; summary: Overridable; improve: Overridable };
   embeddingsProvider: Overridable;
   ollamaHost: Overridable;
+  ollamaApiKey: KeyStatus;
+  ollamaChatModel: Overridable;
   ollamaEmbedModel: Overridable;
 }) {
   const router = useRouter();
@@ -138,6 +152,7 @@ export function AiSettingsForm({
     };
 
     const body = {
+      chatProvider: text("chatProvider") || null,
       anthropicApiKey: secret("anthropicApiKey"),
       voyageApiKey: secret("voyageApiKey"),
       modelGm: text("modelGm") || null,
@@ -145,6 +160,8 @@ export function AiSettingsForm({
       modelImprove: text("modelImprove") || null,
       embeddingsProvider: text("embeddingsProvider") || null,
       ollamaHost: text("ollamaHost") || null,
+      ollamaApiKey: secret("ollamaApiKey"),
+      ollamaChatModel: text("ollamaChatModel") || null,
       ollamaEmbedModel: text("ollamaEmbedModel") || null,
     };
 
@@ -188,11 +205,38 @@ export function AiSettingsForm({
           <option key={model} value={model} />
         ))}
       </datalist>
+      <datalist id="ollama-chat-models">
+        {OLLAMA_CHAT_MODELS.map((model) => (
+          <option key={model} value={model} />
+        ))}
+      </datalist>
 
       <fieldset className="flex flex-col gap-4">
-        <legend className="mb-2 font-medium text-zinc-100">
-          Claude (Anthropic)
-        </legend>
+        <legend className="mb-2 font-medium text-zinc-100">Provider AI</legend>
+        <label className="flex flex-col gap-1 text-sm text-zinc-300">
+          Provider per partita, riassunti e migliora istruzioni
+          <select
+            name="chatProvider"
+            defaultValue={chatProvider.value ?? ""}
+            className={inputClass}
+          >
+            <option value="">
+              Predefinito (
+              {chatProvider.fallback === "ollama" ? "Ollama" : "Claude"})
+            </option>
+            <option value="anthropic">Claude (Anthropic)</option>
+            <option value="ollama">Ollama (locale o cloud)</option>
+          </select>
+          <span className="text-xs text-zinc-500">
+            Con Ollama si usa il modello indicato nella sezione Ollama qui
+            sotto; le impostazioni Claude restano salvate.
+          </span>
+        </label>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-4 border-t border-zinc-800 pt-4">
+        <legend className="sr-only">Claude (Anthropic)</legend>
+        <span className="font-medium text-zinc-100">Claude (Anthropic)</span>
         <ApiKeyField
           label="Chiave API Anthropic"
           name="anthropicApiKey"
@@ -229,6 +273,47 @@ export function AiSettingsForm({
       </fieldset>
 
       <fieldset className="flex flex-col gap-4 border-t border-zinc-800 pt-4">
+        <legend className="sr-only">Ollama</legend>
+        <span className="font-medium text-zinc-100">Ollama</span>
+        <p className="text-xs text-zinc-500">
+          Usato per la chat quando è il provider selezionato e per gli
+          embeddings locali. Per i modelli locali basta l&apos;host; per Ollama
+          cloud usa un modello con suffisso <code>-cloud</code> (host locale
+          con account collegato) oppure host{" "}
+          <code>https://ollama.com</code> con chiave API.
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm text-zinc-300">
+            Host Ollama
+            <input
+              name="ollamaHost"
+              type="text"
+              defaultValue={ollamaHost.value ?? ""}
+              placeholder={
+                ollamaHost.fallback
+                  ? `Predefinito: ${ollamaHost.fallback}`
+                  : "http://localhost:11434"
+              }
+              className={inputClass}
+            />
+          </label>
+          <ModelField
+            label="Modello chat"
+            description="Usato per partita, riassunti e migliora istruzioni quando il provider è Ollama."
+            name="ollamaChatModel"
+            model={ollamaChatModel}
+            listId="ollama-chat-models"
+          />
+        </div>
+        <ApiKeyField
+          label="Chiave API Ollama (solo cloud)"
+          name="ollamaApiKey"
+          status={ollamaApiKey}
+          placeholder="chiave da ollama.com"
+        />
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-4 border-t border-zinc-800 pt-4">
         <legend className="sr-only">Embeddings</legend>
         <span className="font-medium text-zinc-100">
           Embeddings (indicizzazione documenti)
@@ -256,37 +341,21 @@ export function AiSettingsForm({
           status={voyageKey}
           placeholder="pa-…"
         />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm text-zinc-300">
-            Host Ollama
-            <input
-              name="ollamaHost"
-              type="text"
-              defaultValue={ollamaHost.value ?? ""}
-              placeholder={
-                ollamaHost.fallback
-                  ? `Predefinito: ${ollamaHost.fallback}`
-                  : "http://localhost:11434"
-              }
-              className={inputClass}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-zinc-300">
-            Modello embeddings Ollama
-            <input
-              name="ollamaEmbedModel"
-              type="text"
-              defaultValue={ollamaEmbedModel.value ?? ""}
-              placeholder={
-                ollamaEmbedModel.fallback
-                  ? `Predefinito: ${ollamaEmbedModel.fallback}`
-                  : "es. bge-m3 (1024 dimensioni)"
-              }
-              list="ollama-embed-models"
-              className={inputClass}
-            />
-          </label>
-        </div>
+        <label className="flex flex-col gap-1 text-sm text-zinc-300">
+          Modello embeddings Ollama
+          <input
+            name="ollamaEmbedModel"
+            type="text"
+            defaultValue={ollamaEmbedModel.value ?? ""}
+            placeholder={
+              ollamaEmbedModel.fallback
+                ? `Predefinito: ${ollamaEmbedModel.fallback}`
+                : "es. bge-m3 (1024 dimensioni)"
+            }
+            list="ollama-embed-models"
+            className={inputClass}
+          />
+        </label>
       </fieldset>
 
       {error && <p className="text-sm text-red-400">{error}</p>}

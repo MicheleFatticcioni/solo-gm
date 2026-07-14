@@ -1,6 +1,6 @@
 # Solo GM
 
-Web app personale, self-hosted in locale, che fa da **Game Master AI** per giochi di ruolo in solitaria. Carichi i PDF dei manuali, l'app li indicizza in un vector store e Claude conduce la partita in chat usando RAG sui manuali + memoria a lungo termine della campagna.
+Web app personale, self-hosted in locale, che fa da **Game Master AI** per giochi di ruolo in solitaria. Carichi i PDF dei manuali, l'app li indicizza in un vector store e un'AI (Claude, oppure Ollama con modelli locali o cloud) conduce la partita in chat usando RAG sui manuali + memoria a lungo termine della campagna.
 
 Dettagli architetturali completi in [`docs/00-architettura.md`](docs/00-architettura.md).
 
@@ -8,7 +8,7 @@ Dettagli architetturali completi in [`docs/00-architettura.md`](docs/00-architet
 
 - Node.js versione indicata in [`.nvmrc`](.nvmrc) (`nvm use`)
 - Docker (per Postgres + pgvector)
-- Una API key Anthropic
+- Una API key Anthropic — oppure Ollama (locale o cloud) come provider chat alternativo
 - Una API key Voyage AI (embeddings) — oppure Ollama in locale come alternativa
 
 ## Avvio
@@ -35,6 +35,7 @@ Dettagli architetturali completi in [`docs/00-architettura.md`](docs/00-architet
    - `AUTH_SECRET`: genera con `openssl rand -base64 32`.
    - `APP_USER_EMAIL` / `APP_USER_PASSWORD`: credenziali dell'utente singolo creato dal seed.
    - `ANTHROPIC_API_KEY`: per il GM e la summarization.
+   - In alternativa a Claude: `CHAT_PROVIDER=ollama` + `OLLAMA_CHAT_MODEL` (es. `llama3.3`; per Ollama cloud aggiungi `OLLAMA_API_KEY` o usa un modello con suffisso `-cloud`). Tutto configurabile anche dalla pagina Impostazioni.
    - `VOYAGE_API_KEY` (o `EMBEDDINGS_PROVIDER=ollama` + `OLLAMA_EMBED_MODEL`): per gli embeddings dei manuali.
 
 4. Applica le migrazioni e crea l'utente:
@@ -52,6 +53,29 @@ Dettagli architetturali completi in [`docs/00-architettura.md`](docs/00-architet
    ```
 
 6. Accedi su [http://localhost:3000](http://localhost:3000) con le credenziali del seed.
+
+## Provider AI: come funziona (Claude o Ollama)
+
+Tutte le interazioni chat — la partita condotta dal GM, l'aggiornamento della wiki di campagna e "migliora istruzioni" — passano da un unico provider, selezionabile dalla pagina **Impostazioni** (sezione "Provider AI"). Le impostazioni salvate nel DB hanno la precedenza; le variabili d'ambiente restano solo come fallback.
+
+### Claude (Anthropic) — predefinito
+
+- Richiede `ANTHROPIC_API_KEY` (o la chiave salvata dalle Impostazioni).
+- Ogni funzione ha il suo modello configurabile: partita (GM), riassunto/wiki, migliora istruzioni.
+
+### Ollama (locale o cloud)
+
+- Si attiva scegliendo "Ollama" come provider nelle Impostazioni (o con `CHAT_PROVIDER=ollama`).
+- Usa **un solo modello chat** per tutte le funzioni, indicato nel campo "Modello chat" della sezione Ollama (o `OLLAMA_CHAT_MODEL`), es. `llama3.3`, `qwen3`, `gpt-oss:20b`.
+- L'**host** è lo stesso già usato per gli embeddings (`OLLAMA_HOST`, default `http://localhost:11434`).
+- **Modelli cloud**, due modi:
+  - host locale con account Ollama collegato (`ollama signin`) e un modello con suffisso `-cloud`, es. `gpt-oss:120b-cloud`: è il server locale a fare da ponte;
+  - host `https://ollama.com` + chiave API (campo "Chiave API Ollama" nelle Impostazioni, o `OLLAMA_API_KEY`).
+- Il modello deve supportare i **tool** (tiri di dado e letture della wiki li usano): i modelli solo-embedding o senza tool calling non funzionano come GM.
+- Le impostazioni Claude restano salvate quando passi a Ollama (e viceversa): puoi cambiare provider avanti e indietro senza riconfigurare nulla.
+- Gli errori tipici (server Ollama spento, modello non scaricato, chiave cloud rifiutata) vengono mostrati in chat con un messaggio che spiega come rimediare.
+
+Lato codice, l'astrazione sta in [`src/lib/llm.ts`](src/lib/llm.ts): `createLlmClient(settings)` espone la stessa interfaccia (streaming e tool inclusi) per entrambi i provider; il formato interno di messaggi e tool è quello Anthropic e l'adapter Ollama traduce da/verso il suo schema. Il provider degli **embeddings** (Voyage o Ollama) resta un'impostazione separata e indipendente dal provider chat.
 
 ## Condividere il progetto con un amico (senza esperienza tecnica)
 

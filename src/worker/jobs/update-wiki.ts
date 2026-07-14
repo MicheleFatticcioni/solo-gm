@@ -3,7 +3,9 @@ import { and, desc, eq, sql } from "drizzle-orm";
 
 import { db } from "../../db";
 import { campaigns, campaignSummaries, messages } from "../../db/schema";
-import { createAnthropicClient, getAiSettings } from "../../lib/settings";
+import { createLlmClient } from "../../lib/llm";
+import { enqueueUpdateWiki } from "../../lib/queue";
+import { chatModel, getAiSettings } from "../../lib/settings";
 import {
   buildWikiIndex,
   CORE_SLUG,
@@ -14,15 +16,16 @@ import {
   isWikiFolder,
   upsertWikiPage,
   WIKI_FOLDERS,
+  WIKI_MIN_NEW_MESSAGES,
+  WIKI_TAIL_GUARD,
   type WikiFolder,
 } from "../../lib/wiki";
 
-// Gli ultimi turni restano fuori dalla finestra da archiviare: sono
-// ancora in chiaro nel contesto della chat, e archiviarli farebbe
-// "inseguire" la conversazione in corso.
-const TAIL_GUARD = 6;
-// Sotto questa soglia di messaggi nuovi non vale la pena girare.
-const MIN_NEW_MESSAGES = 10;
+// Cadenza dell'archiviazione (coda in chiaro e soglia minima):
+// WIKI_TAIL_GUARD e WIKI_MIN_NEW_MESSAGES in lib/wiki, condivise con il
+// trigger della chat. La storia in chiaro (context.ts) è ancorata al
+// watermark, quindi il backlog non archiviato resta sempre visibile al
+// GM anche se questo job ritarda o fallisce.
 // Iterazioni massime del loop agentico dell'archivista.
 const MAX_ITERATIONS = 20;
 
@@ -31,7 +34,7 @@ const ARCHIVIST_SYSTEM = `Sei l'archivista di una campagna di gioco di ruolo in 
 Ricevi lo stato attuale della wiki (indice completo + pagina panoramica + note temporanee) e la trascrizione dei nuovi eventi di gioco. Aggiorna la wiki con gli strumenti a disposizione perché rifletta TUTTO ciò che è successo.
 
 ## Le cartelle
-- core: SOLO la pagina core/panoramica — sinossi (2-4 frasi), stato del party (ferite, risorse, equipaggiamento notevole, obiettivi), fili aperti, decisioni importanti. Sempre aggiornata, sintetica, max ~600 token: è l'unica pagina che il GM ha SEMPRE davanti.
+- core: SOLO la pagina core/panoramica — sinossi (2-4 frasi), stato del party (ferite, risorse, equipaggiamento notevole, obiettivi), situazione della scena in corso e ultimi sviluppi, fili aperti, decisioni importanti. Sempre aggiornata, densa di fatti concreti, max ~800 token: è l'unica pagina che il GM ha SEMPRE davanti, e la storia in chiaro che vede è corta — ciò che non è qui o nelle pagine per lui non esiste.
 - pg: un personaggio giocante per pagina — descrizione, background, e la scheda meccanica in una sezione "## Scheda".
 - npc: un personaggio non giocante per pagina — chi è, atteggiamento verso il party, obiettivi, stato, e l'eventuale scheda di combattimento in "## Scheda".
 - luoghi: un luogo per pagina — descrizione, dettagli rilevanti, PNG presenti come [[link]].
@@ -143,8 +146,16 @@ export async function updateWiki(campaignId: string): Promise<void> {
       .where(and(eq(messages.campaignId, campaignId), afterWatermark))
       .orderBy(messages.createdAt, messages.id);
 
-    const window = newMessages.slice(0, Math.max(0, newMessages.length - TAIL_GUARD));
-    if (window.length < MIN_NEW_MESSAGES) {
+    // Gli ultimi turni restano fuori dalla finestra da archiviare: sono
+    // ancora in chiaro nel contesto della chat, e archiviarli farebbe
+    // "inseguire" la conversazione in corso. La finestra si chiude
+    // inoltre su un turno del GM, così la storia in chiaro riparte da
+    // un messaggio user (vincolo dell'API Anthropic) e context.ts non
+    // deve scartare un turno assistant mai archiviato.
+    let end = Math.max(0, newMessages.length - WIKI_TAIL_GUARD);
+    while (end > 0 && newMessages[end - 1].role === "user") end--;
+    const window = newMessages.slice(0, end);
+    if (window.length < WIKI_MIN_NEW_MESSAGES) {
       console.log(
         `update-wiki: campagna ${campaignId}, solo ${window.length} messaggi archiviabili, salto`,
       );
@@ -176,7 +187,8 @@ export async function updateWiki(campaignId: string): Promise<void> {
 
     // L'app è single-tenant: le impostazioni sono quelle dell'unico utente.
     const settings = await getAiSettings();
-    const client = createAnthropicClient(settings);
+    const client = createLlmClient(settings);
+    const model = chatModel(settings, "summary");
 
     const conversation: Anthropic.MessageParam[] = [
       {
@@ -187,17 +199,16 @@ export async function updateWiki(campaignId: string): Promise<void> {
 
     let changes = 0;
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      const stream = client.messages.stream({
-        model: settings.modelSummary,
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
+      const final = await client.chat({
+        model,
+        maxTokens: 16000,
+        thinking: true,
         system: ARCHIVIST_SYSTEM,
         messages: conversation,
         tools: [upsertPageTool, deletePageTool, readPageTool],
       });
-      const final = await stream.finalMessage();
 
-      if (final.stop_reason !== "tool_use") break;
+      if (final.stopReason !== "tool_use") break;
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const block of final.content) {
@@ -215,14 +226,36 @@ export async function updateWiki(campaignId: string): Promise<void> {
     // Il watermark avanza solo a lavoro concluso: se il job fallisce a
     // metà, il retry riparte dalla stessa finestra (gli upsert sono
     // idempotenti rispetto a una seconda passata).
+    const newWatermark = window[window.length - 1].id;
     await db
       .update(campaigns)
-      .set({ wikiCoversUntilMessageId: window[window.length - 1].id })
+      .set({ wikiCoversUntilMessageId: newWatermark })
       .where(eq(campaigns.id, campaignId));
 
     console.log(
       `update-wiki: campagna ${campaignId}, archiviati ${window.length} messaggi (${changes} modifiche alla wiki)`,
     );
+
+    // Un run può essere lento (soprattutto con modelli locali) e la
+    // partita nel frattempo prosegue: se si è già riaccumulata una
+    // finestra archiviabile la si riaccoda subito, senza aspettare il
+    // prossimo turno (la policy stately ammette un job in coda mentre
+    // questo è ancora attivo).
+    const [{ backlog }] = await db
+      .select({ backlog: sql<number>`count(*)::int` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.campaignId, campaignId),
+          sql`(${messages.createdAt}, ${messages.id}) > (
+            select created_at, id from messages
+            where id = ${newWatermark}
+          )`,
+        ),
+      );
+    if (backlog - WIKI_TAIL_GUARD >= WIKI_MIN_NEW_MESSAGES) {
+      await enqueueUpdateWiki(campaignId);
+    }
   } catch (error) {
     // Il fallimento resta nel worker (retry pg-boss), la chat non ne risente.
     console.error(`update-wiki: fallito per campagna ${campaignId}:`, error);
@@ -234,7 +267,7 @@ type ArchivistToolOutcome = { ok: boolean; block: Anthropic.ToolResultBlockParam
 
 async function executeArchivistTool(
   campaignId: string,
-  block: Anthropic.ToolUseBlock,
+  block: Anthropic.ToolUseBlockParam,
 ): Promise<ArchivistToolOutcome> {
   const fail = (message: string): ArchivistToolOutcome => ({
     ok: false,
