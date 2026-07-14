@@ -55,6 +55,9 @@ function gmInstructions(
 - Quando la scena coinvolge un PNG, un luogo o un evento presente nell'indice, leggi la sua pagina con lo strumento read_wiki_page PRIMA di descriverlo o farlo agire: i fatti scritti nelle pagine prevalgono sulla tua memoria implicita.
 - Leggi solo le pagine rilevanti per la scena corrente, al massimo 2-3 per turno; non rileggere pagine già lette in questo turno.
 
+## Uso degli strumenti
+- Se prevedi di aver bisogno di più strumenti nello stesso turno (es. leggere più pagine wiki, o leggere una pagina wiki e tirare un dado), richiamali tutti insieme nella stessa risposta invece che uno alla volta in risposte separate: ogni risposta separata rifà il giro completo del contesto ed è più lenta e costosa.
+
 ## Coerenza
 - Mantieni la coerenza con la memoria della campagna (panoramica, note, pagine wiki lette) e con la storia recente: nomi, luoghi, ferite, oggetti, promesse fatte dai PNG.
 - Se il giocatore contraddice fatti stabiliti, chiedigli conferma invece di riscrivere silenziosamente la storia.
