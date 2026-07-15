@@ -3,7 +3,10 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users, userSettings } from "@/db/schema";
 import { getUserId } from "@/lib/session";
-import { DEFAULT_ANTHROPIC_MODEL } from "@/lib/settings";
+import {
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_DEEPSEEK_MODEL,
+} from "@/lib/settings";
 
 import { AiSettingsForm, type KeyStatus } from "./ai-settings-form";
 import { PasswordForm } from "./password-form";
@@ -76,6 +79,23 @@ export default async function ImpostazioniPage() {
             improve: {
               value: row?.modelImprove ?? null,
               fallback: modelFallback(process.env.ANTHROPIC_MODEL_IMPROVE),
+            },
+          }}
+          deepseekKey={keyStatus(row?.deepseekApiKey, process.env.DEEPSEEK_API_KEY)}
+          deepseekModels={{
+            gm: {
+              value: row?.deepseekModelGm ?? null,
+              fallback: process.env.DEEPSEEK_MODEL_GM ?? DEFAULT_DEEPSEEK_MODEL,
+            },
+            summary: {
+              value: row?.deepseekModelSummary ?? null,
+              fallback:
+                process.env.DEEPSEEK_MODEL_SUMMARY ?? DEFAULT_DEEPSEEK_MODEL,
+            },
+            improve: {
+              value: row?.deepseekModelImprove ?? null,
+              fallback:
+                process.env.DEEPSEEK_MODEL_IMPROVE ?? DEFAULT_DEEPSEEK_MODEL,
             },
           }}
           embeddingsProvider={{

@@ -12,11 +12,18 @@ import { getUserId } from "@/lib/session";
 // indietro così come sono.
 const aiSchema = z
   .object({
-    chatProvider: z.enum(["anthropic", "ollama"]).nullable().optional(),
+    chatProvider: z
+      .enum(["anthropic", "ollama", "deepseek"])
+      .nullable()
+      .optional(),
     anthropicApiKey: z.string().trim().min(1).nullable().optional(),
     modelGm: z.string().trim().min(1).nullable().optional(),
     modelSummary: z.string().trim().min(1).nullable().optional(),
     modelImprove: z.string().trim().min(1).nullable().optional(),
+    deepseekApiKey: z.string().trim().min(1).nullable().optional(),
+    deepseekModelGm: z.string().trim().min(1).nullable().optional(),
+    deepseekModelSummary: z.string().trim().min(1).nullable().optional(),
+    deepseekModelImprove: z.string().trim().min(1).nullable().optional(),
     embeddingsProvider: z.enum(["voyage", "ollama"]).nullable().optional(),
     voyageApiKey: z.string().trim().min(1).nullable().optional(),
     ollamaHost: z.url("Host Ollama non valido").nullable().optional(),

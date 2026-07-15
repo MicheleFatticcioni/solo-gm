@@ -20,6 +20,8 @@ const ANTHROPIC_MODELS = [
   "claude-haiku-4-5-20251001",
 ];
 
+const DEEPSEEK_MODELS = ["deepseek-chat", "deepseek-reasoner"];
+
 const OLLAMA_EMBED_MODELS = ["bge-m3", "mxbai-embed-large"];
 
 const OLLAMA_CHAT_MODELS = [
@@ -78,6 +80,44 @@ function ApiKeyField({
   );
 }
 
+// Switch stile toggle (accessibile via role="switch") al posto della
+// checkbox nativa: più leggibile per un'opzione binaria on/off.
+function Switch({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+        checked ? "bg-emerald-600" : "bg-zinc-700"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+          checked ? "translate-x-5" : "translate-x-0"
+        }`}
+      />
+    </button>
+  );
+}
+
+// Le sezioni per-provider restano montate (mai smontate via JSX
+// condizionale): se sparissero dal DOM, i loro campi non arriverebbero
+// nella FormData al submit e verrebbero salvati come null, cancellando
+// le impostazioni del provider non selezionato. Si nascondono solo
+// visivamente con "hidden", che le esclude anche da tab-order e
+// screen reader ma le lascia nella form.
+function sectionClass(visible: boolean): string {
+  return `flex flex-col gap-4 border-t border-zinc-800 pt-4 ${visible ? "" : "hidden"}`;
+}
+
 function ModelField({
   label,
   description,
@@ -112,6 +152,8 @@ export function AiSettingsForm({
   anthropicKey,
   voyageKey,
   models,
+  deepseekKey,
+  deepseekModels,
   embeddingsProvider,
   ollamaHost,
   ollamaApiKey,
@@ -123,6 +165,12 @@ export function AiSettingsForm({
   anthropicKey: KeyStatus;
   voyageKey: KeyStatus;
   models: { gm: Overridable; summary: Overridable; improve: Overridable };
+  deepseekKey: KeyStatus;
+  deepseekModels: {
+    gm: Overridable;
+    summary: Overridable;
+    improve: Overridable;
+  };
   embeddingsProvider: Overridable;
   ollamaHost: Overridable;
   ollamaApiKey: KeyStatus;
@@ -135,6 +183,17 @@ export function AiSettingsForm({
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [expert, setExpert] = useState(expertMode);
+  const [chatProviderValue, setChatProviderValue] = useState(
+    chatProvider.value ?? "",
+  );
+  const [embedProviderValue, setEmbedProviderValue] = useState(
+    embeddingsProvider.value ?? "",
+  );
+
+  const effectiveChatProvider =
+    chatProviderValue || chatProvider.fallback || "anthropic";
+  const effectiveEmbedProvider =
+    embedProviderValue || embeddingsProvider.fallback || "voyage";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -161,6 +220,10 @@ export function AiSettingsForm({
       modelGm: text("modelGm") || null,
       modelSummary: text("modelSummary") || null,
       modelImprove: text("modelImprove") || null,
+      deepseekApiKey: secret("deepseekApiKey"),
+      deepseekModelGm: text("deepseekModelGm") || null,
+      deepseekModelSummary: text("deepseekModelSummary") || null,
+      deepseekModelImprove: text("deepseekModelImprove") || null,
       embeddingsProvider: text("embeddingsProvider") || null,
       ollamaHost: text("ollamaHost") || null,
       ollamaApiKey: secret("ollamaApiKey"),
@@ -204,6 +267,11 @@ export function AiSettingsForm({
           <option key={model} value={model} />
         ))}
       </datalist>
+      <datalist id="deepseek-models">
+        {DEEPSEEK_MODELS.map((model) => (
+          <option key={model} value={model} />
+        ))}
+      </datalist>
       <datalist id="ollama-embed-models">
         {OLLAMA_EMBED_MODELS.map((model) => (
           <option key={model} value={model} />
@@ -215,21 +283,17 @@ export function AiSettingsForm({
         ))}
       </datalist>
 
-      <label className="flex items-start gap-2 rounded border border-zinc-800 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-300">
-        <input
-          type="checkbox"
-          checked={expert}
-          onChange={(event) => setExpert(event.target.checked)}
-          className="mt-0.5 accent-zinc-400"
-        />
+      <div className="flex items-start justify-between gap-4 rounded border border-zinc-800 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-300">
         <span className="flex flex-col">
           Solo utenti esperti
           <span className="text-xs text-zinc-500">
             Mostra le opzioni avanzate per usare Ollama (modelli locali o cloud)
-            al posto di Claude. Lascia disattivato se usi solo Claude.
+            al posto di Claude o DeepSeek. Lascia disattivato se usi solo
+            Claude o DeepSeek.
           </span>
         </span>
-      </label>
+        <Switch checked={expert} onChange={setExpert} />
+      </div>
 
       <fieldset className="flex flex-col gap-4">
         <legend className="mb-2 font-medium text-zinc-100">Provider AI</legend>
@@ -237,26 +301,34 @@ export function AiSettingsForm({
           Provider per partita, riassunti e migliora istruzioni
           <select
             name="chatProvider"
-            defaultValue={chatProvider.value ?? ""}
+            value={chatProviderValue}
+            onChange={(event) => setChatProviderValue(event.target.value)}
             className={inputClass}
           >
             <option value="">
               Predefinito (
-              {chatProvider.fallback === "ollama" ? "Ollama" : "Claude"})
+              {chatProvider.fallback === "ollama"
+                ? "Ollama"
+                : chatProvider.fallback === "deepseek"
+                  ? "DeepSeek"
+                  : "Claude"}
+              )
             </option>
             <option value="anthropic">Claude (Anthropic)</option>
+            <option value="deepseek">DeepSeek</option>
             {expert && (
               <option value="ollama">Ollama (locale o cloud)</option>
             )}
           </select>
           <span className="text-xs text-zinc-500">
-            Con Ollama si usa il modello indicato nella sezione Ollama qui
-            sotto; le impostazioni Claude restano salvate.
+            Si usa un solo provider alla volta: chiave e modelli della sezione
+            corrispondente qui sotto. Le impostazioni degli altri provider
+            restano salvate.
           </span>
         </label>
       </fieldset>
 
-      <fieldset className="flex flex-col gap-4 border-t border-zinc-800 pt-4">
+      <fieldset className={sectionClass(effectiveChatProvider === "anthropic")}>
         <legend className="sr-only">Claude (Anthropic)</legend>
         <span className="font-medium text-zinc-100">Claude (Anthropic)</span>
         <ApiKeyField
@@ -294,8 +366,51 @@ export function AiSettingsForm({
         </p>
       </fieldset>
 
-      {expert && (
-      <fieldset className="flex flex-col gap-4 border-t border-zinc-800 pt-4">
+      <fieldset className={sectionClass(effectiveChatProvider === "deepseek")}>
+        <legend className="sr-only">DeepSeek</legend>
+        <span className="font-medium text-zinc-100">DeepSeek</span>
+        <ApiKeyField
+          label="Chiave API DeepSeek"
+          name="deepseekApiKey"
+          status={deepseekKey}
+          placeholder="sk-…"
+        />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <ModelField
+            label="Modello partita (GM)"
+            description="Conduce la campagna durante il gioco."
+            name="deepseekModelGm"
+            model={deepseekModels.gm}
+            listId="deepseek-models"
+          />
+          <ModelField
+            label="Modello riassunto"
+            description="Aggiorna il riassunto progressivo della campagna."
+            name="deepseekModelSummary"
+            model={deepseekModels.summary}
+            listId="deepseek-models"
+          />
+          <ModelField
+            label="Modello migliora istruzioni"
+            description="Riscrive le istruzioni per l'AI della campagna."
+            name="deepseekModelImprove"
+            model={deepseekModels.improve}
+            listId="deepseek-models"
+          />
+        </div>
+        <p className="text-xs text-zinc-500">
+          Lascia vuoto un modello per usare il predefinito. Puoi anche digitare
+          un identificatore non in elenco.
+        </p>
+      </fieldset>
+
+      <fieldset
+        className={sectionClass(
+          expert &&
+            (effectiveChatProvider === "ollama" ||
+              effectiveEmbedProvider === "ollama"),
+        )}
+      >
         <legend className="sr-only">Ollama</legend>
         <span className="font-medium text-zinc-100">Ollama</span>
         <p className="text-xs text-zinc-500">
@@ -335,7 +450,6 @@ export function AiSettingsForm({
           placeholder="chiave da ollama.com"
         />
       </fieldset>
-      )}
 
       <fieldset className="flex flex-col gap-4 border-t border-zinc-800 pt-4">
         <legend className="sr-only">Embeddings</legend>
@@ -351,7 +465,8 @@ export function AiSettingsForm({
           Provider
           <select
             name="embeddingsProvider"
-            defaultValue={embeddingsProvider.value ?? ""}
+            value={embedProviderValue}
+            onChange={(event) => setEmbedProviderValue(event.target.value)}
             className={inputClass}
           >
             <option value="">Predefinito ({embeddingsProvider.fallback})</option>
@@ -359,29 +474,33 @@ export function AiSettingsForm({
             {expert && <option value="ollama">Ollama (locale)</option>}
           </select>
         </label>
-        <ApiKeyField
-          label="Chiave API Voyage"
-          name="voyageApiKey"
-          status={voyageKey}
-          placeholder="pa-…"
-        />
-        {expert && (
-          <label className="flex flex-col gap-1 text-sm text-zinc-300">
-            Modello embeddings Ollama
-            <input
-              name="ollamaEmbedModel"
-              type="text"
-              defaultValue={ollamaEmbedModel.value ?? ""}
-              placeholder={
-                ollamaEmbedModel.fallback
-                  ? `Predefinito: ${ollamaEmbedModel.fallback}`
-                  : "es. bge-m3 (1024 dimensioni)"
-              }
-              list="ollama-embed-models"
-              className={inputClass}
-            />
-          </label>
-        )}
+        <div className={effectiveEmbedProvider === "voyage" ? "" : "hidden"}>
+          <ApiKeyField
+            label="Chiave API Voyage"
+            name="voyageApiKey"
+            status={voyageKey}
+            placeholder="pa-…"
+          />
+        </div>
+        <label
+          className={`flex flex-col gap-1 text-sm text-zinc-300 ${
+            expert && effectiveEmbedProvider === "ollama" ? "" : "hidden"
+          }`}
+        >
+          Modello embeddings Ollama
+          <input
+            name="ollamaEmbedModel"
+            type="text"
+            defaultValue={ollamaEmbedModel.value ?? ""}
+            placeholder={
+              ollamaEmbedModel.fallback
+                ? `Predefinito: ${ollamaEmbedModel.fallback}`
+                : "es. bge-m3 (1024 dimensioni)"
+            }
+            list="ollama-embed-models"
+            className={inputClass}
+          />
+        </label>
       </fieldset>
 
       {error && <p className="text-sm text-red-400">{error}</p>}

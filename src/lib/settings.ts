@@ -6,8 +6,9 @@ import { db } from "../db";
 import { userSettings } from "../db/schema";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
+export const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
 
-export type ChatProvider = "anthropic" | "ollama";
+export type ChatProvider = "anthropic" | "ollama" | "deepseek";
 export type EmbeddingsProvider = "voyage" | "ollama";
 
 export type AiSettings = {
@@ -16,6 +17,10 @@ export type AiSettings = {
   modelGm: string;
   modelSummary: string;
   modelImprove: string;
+  deepseekApiKey: string | null;
+  deepseekModelGm: string;
+  deepseekModelSummary: string;
+  deepseekModelImprove: string;
   embeddingsProvider: EmbeddingsProvider;
   voyageApiKey: string | null;
   ollamaHost: string | null;
@@ -55,6 +60,20 @@ export async function getAiSettings(userId?: string): Promise<AiSettings> {
       row?.modelImprove ??
       process.env.ANTHROPIC_MODEL_IMPROVE ??
       DEFAULT_ANTHROPIC_MODEL,
+    deepseekApiKey:
+      row?.deepseekApiKey ?? process.env.DEEPSEEK_API_KEY ?? null,
+    deepseekModelGm:
+      row?.deepseekModelGm ??
+      process.env.DEEPSEEK_MODEL_GM ??
+      DEFAULT_DEEPSEEK_MODEL,
+    deepseekModelSummary:
+      row?.deepseekModelSummary ??
+      process.env.DEEPSEEK_MODEL_SUMMARY ??
+      DEFAULT_DEEPSEEK_MODEL,
+    deepseekModelImprove:
+      row?.deepseekModelImprove ??
+      process.env.DEEPSEEK_MODEL_IMPROVE ??
+      DEFAULT_DEEPSEEK_MODEL,
     embeddingsProvider:
       row?.embeddingsProvider ??
       (process.env.EMBEDDINGS_PROVIDER as EmbeddingsProvider | undefined) ??
@@ -72,7 +91,8 @@ export async function getAiSettings(userId?: string): Promise<AiSettings> {
 export type ChatTask = "gm" | "summary" | "improve";
 
 // Modello effettivo per una funzione dell'app, secondo il provider chat:
-// con Claude ogni funzione ha il suo modello, con Ollama se ne usa uno solo.
+// con Claude e DeepSeek ogni funzione ha il suo modello, con Ollama se
+// ne usa uno solo.
 export function chatModel(settings: AiSettings, task: ChatTask): string {
   if (settings.chatProvider === "ollama") {
     if (!settings.ollamaChatModel) {
@@ -81,6 +101,16 @@ export function chatModel(settings: AiSettings, task: ChatTask): string {
       );
     }
     return settings.ollamaChatModel;
+  }
+  if (settings.chatProvider === "deepseek") {
+    switch (task) {
+      case "gm":
+        return settings.deepseekModelGm;
+      case "summary":
+        return settings.deepseekModelSummary;
+      case "improve":
+        return settings.deepseekModelImprove;
+    }
   }
   switch (task) {
     case "gm":
