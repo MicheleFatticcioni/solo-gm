@@ -6,7 +6,9 @@ import {
   campaigns,
   campaignSummaries,
   documents,
+  messages,
   users,
+  wikiPages,
 } from "@/db/schema";
 
 // La registrazione è consentita solo per creare il primo (e unico) utente.
@@ -104,6 +106,119 @@ export async function listLibrary(userId: string) {
       .filter((u) => u.documentId === doc.id)
       .map((u) => ({ id: u.campaignId, name: u.campaignName })),
   }));
+}
+
+// Duplica una campagna con tutto il suo contenuto: messaggi, documenti
+// associati, pagine wiki e riassunti. I nuovi id dei messaggi sono generati
+// in anticipo per rimappare i riferimenti (watermark wiki e riassunti).
+export async function duplicateCampaign(userId: string, campaignId: string) {
+  const source = await getCampaign(userId, campaignId);
+  if (!source) return null;
+
+  return db.transaction(async (tx) => {
+    const sourceMessages = await tx
+      .select()
+      .from(messages)
+      .where(eq(messages.campaignId, campaignId))
+      .orderBy(messages.createdAt);
+
+    const messageIdMap = new Map(
+      sourceMessages.map((m) => [m.id, crypto.randomUUID()]),
+    );
+
+    // Il watermark wiki punta ai messaggi non ancora inseriti: prima la
+    // campagna senza watermark, poi i messaggi, infine l'update.
+    const [copy] = await tx
+      .insert(campaigns)
+      .values({
+        userId,
+        name: `${source.name} (copia)`,
+        gameSystem: source.gameSystem,
+        aiInstructions: source.aiInstructions,
+        lastPlayedAt: source.lastPlayedAt,
+      })
+      .returning();
+
+    // A blocchi per non superare il limite di parametri di Postgres.
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < sourceMessages.length; i += BATCH_SIZE) {
+      await tx.insert(messages).values(
+        sourceMessages.slice(i, i + BATCH_SIZE).map((m) => ({
+          id: messageIdMap.get(m.id),
+          campaignId: copy.id,
+          role: m.role,
+          content: m.content,
+          inputTokens: m.inputTokens,
+          outputTokens: m.outputTokens,
+          metadata: m.metadata,
+          createdAt: m.createdAt,
+        })),
+      );
+    }
+
+    const wikiWatermark = source.wikiCoversUntilMessageId
+      ? (messageIdMap.get(source.wikiCoversUntilMessageId) ?? null)
+      : null;
+    if (wikiWatermark) {
+      await tx
+        .update(campaigns)
+        .set({ wikiCoversUntilMessageId: wikiWatermark })
+        .where(eq(campaigns.id, copy.id));
+    }
+
+    const sourceDocuments = await tx
+      .select({ documentId: campaignDocuments.documentId })
+      .from(campaignDocuments)
+      .where(eq(campaignDocuments.campaignId, campaignId));
+    if (sourceDocuments.length > 0) {
+      await tx.insert(campaignDocuments).values(
+        sourceDocuments.map(({ documentId }) => ({
+          campaignId: copy.id,
+          documentId,
+        })),
+      );
+    }
+
+    const sourceWikiPages = await tx
+      .select()
+      .from(wikiPages)
+      .where(eq(wikiPages.campaignId, campaignId));
+    if (sourceWikiPages.length > 0) {
+      await tx.insert(wikiPages).values(
+        sourceWikiPages.map((p) => ({
+          campaignId: copy.id,
+          folder: p.folder,
+          slug: p.slug,
+          title: p.title,
+          description: p.description,
+          content: p.content,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        })),
+      );
+    }
+
+    const sourceSummaries = await tx
+      .select()
+      .from(campaignSummaries)
+      .where(eq(campaignSummaries.campaignId, campaignId))
+      .orderBy(campaignSummaries.createdAt);
+    if (sourceSummaries.length > 0) {
+      await tx.insert(campaignSummaries).values(
+        sourceSummaries.map((s) => ({
+          campaignId: copy.id,
+          content: s.content,
+          coversUntilMessageId: s.coversUntilMessageId
+            ? (messageIdMap.get(s.coversUntilMessageId) ?? null)
+            : null,
+          isUserEdited: s.isUserEdited,
+          createdAt: s.createdAt,
+        })),
+      );
+    }
+
+    return { ...copy, wikiCoversUntilMessageId: wikiWatermark };
+  });
 }
 
 // Verifica che tutti i documenti esistano e appartengano all'utente.
