@@ -43,12 +43,12 @@ fi
 echo
 echo "Attendo che l'app sia pronta..."
 
-until curl -s -o /dev/null http://localhost:3000; do
+until curl -s -o /dev/null http://localhost:4200; do
   sleep 3
 done
 
 echo "Pronto! Apro il browser..."
-open http://localhost:3000
+open http://localhost:4200
 
 echo
 echo "Puoi chiudere questa finestra: l'app restera' attiva in background."

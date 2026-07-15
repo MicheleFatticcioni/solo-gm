@@ -10,6 +10,13 @@ import { rollDice, rollDiceTool, type RollDiceInput } from "@/lib/dice";
 import { getCampaign } from "@/lib/queries";
 import { enqueueUpdateWiki } from "@/lib/queue";
 import { createLlmClient } from "@/lib/llm";
+import {
+  formatExcerpts,
+  retrieve,
+  SEARCH_MANUALS_TOP_K,
+  searchManualsTool,
+  type SearchManualsInput,
+} from "@/lib/rag";
 import { getUserId } from "@/lib/session";
 import { AiConfigError, chatModel, getAiSettings } from "@/lib/settings";
 import {
@@ -41,11 +48,17 @@ type WikiReadEvent = {
   title: string | null;
 };
 
+type SearchEvent = {
+  query: string;
+  count: number;
+};
+
 // Eventi SSE verso il browser.
 type ChatEvent =
   | { type: "text"; text: string }
   | ({ type: "dice" } & DiceEvent)
   | ({ type: "wiki" } & WikiReadEvent)
+  | ({ type: "search" } & SearchEvent)
   | { type: "done"; messageId: string }
   | { type: "error"; message: string };
 
@@ -118,6 +131,10 @@ async function runGmTurn(
   const textParts: string[] = [];
   const dice: DiceEvent[] = [];
   const wikiReads: WikiReadEvent[] = [];
+  const searches: SearchEvent[] = [];
+  // Chunk citati nel turno: quelli del retrieval automatico più quelli
+  // trovati dalle ricerche esplicite del GM (per i metadata del messaggio).
+  const chunkIds = new Set(context.retrieved.map((c) => c.chunkId));
   let inputTokens = 0;
   let outputTokens = 0;
 
@@ -129,7 +146,7 @@ async function runGmTurn(
         thinking: true,
         system: context.system,
         messages: conversation,
-        tools: [rollDiceTool, readWikiPageTool],
+        tools: [rollDiceTool, readWikiPageTool, searchManualsTool],
       },
       (text) => send({ type: "text", text }),
     );
@@ -153,6 +170,10 @@ async function runGmTurn(
         toolResults.push(
           await executeReadWikiPage(campaignId, block, send, wikiReads),
         );
+      } else if (block.name === "search_manuals") {
+        toolResults.push(
+          await executeSearchManuals(campaignId, block, send, searches, chunkIds),
+        );
       }
     }
     conversation.push(
@@ -170,9 +191,10 @@ async function runGmTurn(
       inputTokens,
       outputTokens,
       metadata: {
-        chunkIds: context.retrieved.map((c) => c.chunkId),
+        chunkIds: [...chunkIds],
         dice,
         wikiReads,
+        searches,
       },
     })
     .returning({ id: messages.id });
@@ -219,6 +241,43 @@ async function executeReadWikiPage(
     type: "tool_result",
     tool_use_id: block.id,
     content: `# ${page.title}\n(${page.description})\n\n${page.content}`,
+  };
+}
+
+// Ricerca esplicita nei manuali richiesta dal GM: stesso retrieve()
+// ibrido del turno, ma con la query formulata dal modello. La ricerca
+// vuota non è un errore: si suggerisce al modello di riformulare.
+async function executeSearchManuals(
+  campaignId: string,
+  block: Anthropic.ToolUseBlockParam,
+  send: (event: ChatEvent) => void,
+  searches: SearchEvent[],
+  chunkIds: Set<string>,
+): Promise<Anthropic.ToolResultBlockParam> {
+  const query = (block.input as SearchManualsInput).query?.trim();
+  if (!query) {
+    return {
+      type: "tool_result",
+      tool_use_id: block.id,
+      content: "Query mancante: indica i termini da cercare nei manuali.",
+      is_error: true,
+    };
+  }
+
+  const results = await retrieve(campaignId, query, SEARCH_MANUALS_TOP_K);
+  for (const result of results) chunkIds.add(result.chunkId);
+
+  const event: SearchEvent = { query, count: results.length };
+  searches.push(event);
+  send({ type: "search", ...event });
+
+  return {
+    type: "tool_result",
+    tool_use_id: block.id,
+    content:
+      results.length === 0
+        ? "Nessun estratto trovato. Riprova al massimo una volta con termini diversi (sinonimi, nome esatto della regola o della tabella); se anche quella va a vuoto, dichiara che la regola non è negli estratti disponibili."
+        : formatExcerpts(results),
   };
 }
 

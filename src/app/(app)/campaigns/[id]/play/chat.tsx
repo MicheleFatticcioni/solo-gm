@@ -24,12 +24,19 @@ type WikiReadEvent = {
   title: string | null;
 };
 
+type SearchEvent = {
+  query: string;
+  count: number;
+};
+
 // Un messaggio è una sequenza di parti: durante lo streaming testo,
-// tiri di dado e letture wiki si alternano nell'ordine in cui arrivano.
+// tiri di dado, letture wiki e ricerche nei manuali si alternano
+// nell'ordine in cui arrivano.
 type Part =
   | { type: "text"; text: string }
   | ({ type: "dice" } & DiceEvent)
-  | ({ type: "wiki" } & WikiReadEvent);
+  | ({ type: "wiki" } & WikiReadEvent)
+  | ({ type: "search" } & SearchEvent);
 
 type ChatMessage = {
   id: string;
@@ -41,13 +48,18 @@ type ApiMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  metadata: { dice?: DiceEvent[]; wikiReads?: WikiReadEvent[] } | null;
+  metadata: {
+    dice?: DiceEvent[];
+    wikiReads?: WikiReadEvent[];
+    searches?: SearchEvent[];
+  } | null;
 };
 
 type SseEvent =
   | { type: "text"; text: string }
   | ({ type: "dice" } & DiceEvent)
   | ({ type: "wiki" } & WikiReadEvent)
+  | ({ type: "search" } & SearchEvent)
   | { type: "done"; messageId: string }
   | { type: "error"; message: string };
 
@@ -63,6 +75,9 @@ function toChatMessage(message: ApiMessage): ChatMessage {
   const parts: Part[] = [];
   for (const read of message.metadata?.wikiReads ?? []) {
     parts.push({ type: "wiki", ...read });
+  }
+  for (const search of message.metadata?.searches ?? []) {
+    parts.push({ type: "search", ...search });
   }
   if (message.content) parts.push({ type: "text", text: message.content });
   for (const dice of message.metadata?.dice ?? []) {
@@ -264,6 +279,13 @@ export function Chat({
           title: event.title,
         });
         break;
+      case "search":
+        appendToDraft({
+          type: "search",
+          query: event.query,
+          count: event.count,
+        });
+        break;
       case "done":
         setMessages((current) =>
           current.map((m) => (m.id === DRAFT_ID ? { ...m, id: event.messageId } : m)),
@@ -375,8 +397,10 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             </div>
           ) : part.type === "dice" ? (
             <DiceChip key={i} dice={part} />
-          ) : (
+          ) : part.type === "wiki" ? (
             <WikiChip key={i} read={part} />
+          ) : (
+            <SearchChip key={i} search={part} />
           ),
         )}
       </div>
@@ -393,6 +417,19 @@ function WikiChip({ read }: { read: WikiReadEvent }) {
     >
       <span aria-hidden>📖</span>
       <span>consulta la wiki: {read.title ?? `${read.folder}/${read.slug}`}</span>
+    </span>
+  );
+}
+
+// 🔎 cerca nei manuali: "prova di atletica scalare" (6 estratti)
+function SearchChip({ search }: { search: SearchEvent }) {
+  return (
+    <span className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 rounded-full border border-emerald-800/60 bg-emerald-950/40 px-3 py-1 text-sm text-emerald-200">
+      <span aria-hidden>🔎</span>
+      <span>cerca nei manuali: “{search.query}”</span>
+      <span className="text-emerald-200/70">
+        ({search.count === 0 ? "nessun estratto" : `${search.count} estratti`})
+      </span>
     </span>
   );
 }

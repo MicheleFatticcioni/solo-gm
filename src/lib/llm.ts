@@ -47,6 +47,12 @@ export function createLlmClient(settings: AiSettings): LlmClient {
     : createAnthropicLlm(settings);
 }
 
+// Haiku non supporta il thinking adattivo (solo {type:"enabled", budget_tokens}
+// o nessun thinking): mandare {type:"adaptive"} su Haiku restituisce un 400.
+function supportsAdaptiveThinking(model: string): boolean {
+  return !model.includes("haiku");
+}
+
 function createAnthropicLlm(settings: AiSettings): LlmClient {
   if (!settings.anthropicApiKey) {
     throw new AiConfigError(
@@ -60,7 +66,9 @@ function createAnthropicLlm(settings: AiSettings): LlmClient {
       const stream = client.messages.stream({
         model: request.model,
         max_tokens: request.maxTokens,
-        ...(request.thinking ? { thinking: { type: "adaptive" as const } } : {}),
+        ...(request.thinking && supportsAdaptiveThinking(request.model)
+          ? { thinking: { type: "adaptive" as const } }
+          : {}),
         system: request.system,
         messages: request.messages,
         ...(request.tools ? { tools: request.tools } : {}),

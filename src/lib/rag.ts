@@ -1,3 +1,4 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import { sql } from "drizzle-orm";
 
 import { db } from "@/db";
@@ -91,7 +92,8 @@ async function lexicalSearch(
 ): Promise<CandidateRow[]> {
   // websearch_to_tsquery tollera qualsiasi input utente (niente errori
   // di sintassi come to_tsquery); se non produce match, il ramo
-  // lessicale resta semplicemente vuoto.
+  // lessicale resta semplicemente vuoto. La configurazione 'italian'
+  // DEVE combaciare con quella della colonna generata tsv (db/schema).
   const rows = await db.execute(sql`
     select ${candidateColumns}
     from chunks c
@@ -99,8 +101,8 @@ async function lexicalSearch(
     join campaign_documents cd on cd.document_id = d.id
     where cd.campaign_id = ${campaignId}
       and d.status = 'ready'
-      and c.tsv @@ websearch_to_tsquery('simple', ${query})
-    order by ts_rank(c.tsv, websearch_to_tsquery('simple', ${query})) desc
+      and c.tsv @@ websearch_to_tsquery('italian', ${query})
+    order by ts_rank(c.tsv, websearch_to_tsquery('italian', ${query})) desc
     limit ${CANDIDATES_PER_BRANCH}
   `);
   return rows as unknown as CandidateRow[];
@@ -156,6 +158,57 @@ function dedupeAdjacent(
     content: row.content,
     score: row.score,
   }));
+}
+
+// Risultati per ricerca esplicita del GM: meno del topK del retrieval
+// automatico perché la query del modello è già mirata alla regola.
+export const SEARCH_MANUALS_TOP_K = 6;
+
+// Tool per il loop agentico del GM: espone retrieve() al modello, che
+// formula da sé la query quando gli estratti automatici non bastano.
+export const searchManualsTool: Anthropic.Tool = {
+  name: "search_manuals",
+  description:
+    "Cerca nei manuali e documenti della campagna (ricerca ibrida semantica + lessicale) e restituisce gli estratti più pertinenti con documento e pagine. Usalo quando una regola, tabella o dettaglio che ti serve NON compare negli estratti già forniti nel turno. Formula la query con i termini con cui la regola è scritta sul manuale (nome della regola, della tabella, dell'oggetto), non con la descrizione della scena.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description:
+          "Termini di ricerca, es. 'prova di atletica scalare' o 'tabella armi da mischia costi'",
+      },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  strict: true,
+};
+
+export type SearchManualsInput = { query: string };
+
+// Formatta i chunk nel blocco <estratti_manuali>: usato sia per gli
+// estratti automatici del turno (lib/context) sia per i risultati di
+// search_manuals, così il modello vede un formato solo.
+export function formatExcerpts(retrieved: RetrievedChunk[]): string {
+  if (retrieved.length === 0) {
+    return "<estratti_manuali>\n(nessun estratto rilevante trovato)\n</estratti_manuali>";
+  }
+  const excerpts = retrieved
+    .map(
+      (c) =>
+        `  <estratto documento="${escapeAttribute(c.documentTitle)}" tipo="${c.docType}" pagine="${c.pageStart}-${c.pageEnd}">\n${c.content}\n  </estratto>`,
+    )
+    .join("\n");
+  return `<estratti_manuali>\n${excerpts}\n</estratti_manuali>`;
+}
+
+function escapeAttribute(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 const RECENT_MESSAGES_FOR_QUERY = 2;

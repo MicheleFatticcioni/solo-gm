@@ -126,8 +126,11 @@ export const chunks = pgTable(
     pageEnd: integer("page_end"),
     content: text("content").notNull(),
     embedding: vector("embedding", { dimensions: 1024 }),
+    // Configurazione 'italian' (stemming): "incantesimi" matcha
+    // "incantesimo". DEVE combaciare con la websearch_to_tsquery di
+    // lib/rag.ts, altrimenti gli stem non si incontrano mai.
     tsv: tsvector("tsv").generatedAlwaysAs(
-      (): SQL => sql`to_tsvector('simple', ${chunks.content})`,
+      (): SQL => sql`to_tsvector('italian', ${chunks.content})`,
     ),
   },
   (t) => [

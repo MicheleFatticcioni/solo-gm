@@ -4,7 +4,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { campaignDocuments, campaigns, documents, messages } from "@/db/schema";
 import { getActiveSummary } from "@/lib/queries";
-import { buildRetrievalQuery, retrieve, type RetrievedChunk } from "@/lib/rag";
+import {
+  buildRetrievalQuery,
+  formatExcerpts,
+  retrieve,
+  type RetrievedChunk,
+} from "@/lib/rag";
 import { buildMemoryBlock } from "@/lib/wiki";
 
 // La storia in chiaro copre TUTTO ciò che segue il watermark della
@@ -43,7 +48,8 @@ function gmInstructions(
 
 ## Regole e manuali
 - Nel turno del giocatore ricevi estratti dei manuali nel blocco <estratti_manuali>. Quando una regola è rilevante, applicala citando la fonte (documento e pagine).
-- Se una regola necessaria NON compare negli estratti, dillo esplicitamente e improvvisa una risoluzione coerente con il sistema, segnalando che è una tua interpretazione.
+- Se una regola, tabella o dettaglio necessario NON compare negli estratti, cercalo con lo strumento search_manuals PRIMA di improvvisare: formula la query con i termini con cui la regola è scritta sul manuale (es. "prova di atletica scalare"), non con la descrizione della scena. Se la prima ricerca va a vuoto, riprova al massimo una volta con termini diversi.
+- Solo se nemmeno la ricerca trova la regola, dillo esplicitamente e improvvisa una risoluzione coerente con il sistema, segnalando che è una tua interpretazione.
 - Non inventare mai regole spacciandole per testo ufficiale.
 
 ## Tiri di dado
@@ -235,23 +241,3 @@ async function getRecentHistory(
   return window;
 }
 
-function formatExcerpts(retrieved: RetrievedChunk[]): string {
-  if (retrieved.length === 0) {
-    return "<estratti_manuali>\n(nessun estratto rilevante trovato)\n</estratti_manuali>";
-  }
-  const excerpts = retrieved
-    .map(
-      (c) =>
-        `  <estratto documento="${escapeAttribute(c.documentTitle)}" tipo="${c.docType}" pagine="${c.pageStart}-${c.pageEnd}">\n${c.content}\n  </estratto>`,
-    )
-    .join("\n");
-  return `<estratti_manuali>\n${excerpts}\n</estratti_manuali>`;
-}
-
-function escapeAttribute(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}

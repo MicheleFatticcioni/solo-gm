@@ -43,7 +43,7 @@ export const CORE_SLUG = "panoramica";
 // un run): la storia recente di context.ts li copre tutti, perché è
 // ancorata al watermark e non a un cap fisso.
 export const WIKI_TAIL_GUARD = 4;
-export const WIKI_MIN_NEW_MESSAGES = 6;
+export const WIKI_MIN_NEW_MESSAGES = 5;
 
 const SLUG_RE = /^[a-z0-9-]{1,64}$/;
 

@@ -48,14 +48,14 @@ echo.
 echo Attendo che l'app sia pronta...
 
 :wait
-powershell -NoProfile -Command "try { Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>nul
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri http://localhost:4200 -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>nul
 if errorlevel 1 (
   timeout /t 3 >nul
   goto wait
 )
 
 echo Pronto! Apro il browser...
-start http://localhost:3000
+start http://localhost:4200
 
 echo.
 echo Puoi chiudere questa finestra: l'app restera' attiva in background.

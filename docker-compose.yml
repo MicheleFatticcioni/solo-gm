@@ -60,7 +60,7 @@ services:
       DATABASE_URL: postgres://sologm:sologm@postgres:5432/sologm
       OLLAMA_HOST: http://ollama:11434
     ports:
-      - "3000:3000"
+      - "4200:4200"
     volumes:
       - sologm_uploads:/app/storage
     depends_on:
