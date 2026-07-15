@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "expert_mode" boolean DEFAULT false NOT NULL;

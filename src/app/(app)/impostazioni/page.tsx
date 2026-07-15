@@ -95,6 +95,7 @@ export default async function ImpostazioniPage() {
             value: row?.ollamaEmbedModel ?? null,
             fallback: process.env.OLLAMA_EMBED_MODEL ?? null,
           }}
+          expertMode={row?.expertMode ?? false}
         />
       </section>
     </div>

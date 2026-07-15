@@ -93,6 +93,9 @@ export const userSettings = pgTable("user_settings", {
   // Modello chat usato per tutte le funzioni quando il provider è Ollama.
   ollamaChatModel: text("ollama_chat_model"),
   ollamaEmbedModel: text("ollama_embed_model"),
+  // Mostra le opzioni avanzate (sezione Ollama) nella pagina Impostazioni.
+  // La maggior parte degli utenti usa solo Claude e non ha bisogno di vederle.
+  expertMode: boolean("expert_mode").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

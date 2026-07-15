@@ -50,6 +50,13 @@
       "when": 1784102494665,
       "tag": "0006_natural_slayback",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784106680738,
+      "tag": "0007_melted_grey_gargoyle",
+      "breakpoints": true
     }
   ]
 }

@@ -23,6 +23,7 @@ const aiSchema = z
     ollamaApiKey: z.string().trim().min(1).nullable().optional(),
     ollamaChatModel: z.string().trim().min(1).nullable().optional(),
     ollamaEmbedModel: z.string().trim().min(1).nullable().optional(),
+    expertMode: z.boolean().optional(),
   })
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
     message: "Nessun campo da aggiornare",

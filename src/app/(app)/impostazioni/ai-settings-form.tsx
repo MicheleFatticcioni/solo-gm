@@ -117,6 +117,7 @@ export function AiSettingsForm({
   ollamaApiKey,
   ollamaChatModel,
   ollamaEmbedModel,
+  expertMode,
 }: {
   chatProvider: Overridable;
   anthropicKey: KeyStatus;
@@ -127,11 +128,13 @@ export function AiSettingsForm({
   ollamaApiKey: KeyStatus;
   ollamaChatModel: Overridable;
   ollamaEmbedModel: Overridable;
+  expertMode: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [expert, setExpert] = useState(expertMode);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -163,6 +166,7 @@ export function AiSettingsForm({
       ollamaApiKey: secret("ollamaApiKey"),
       ollamaChatModel: text("ollamaChatModel") || null,
       ollamaEmbedModel: text("ollamaEmbedModel") || null,
+      expertMode: expert,
     };
 
     const res = await fetch("/api/settings/ai", {
@@ -211,6 +215,22 @@ export function AiSettingsForm({
         ))}
       </datalist>
 
+      <label className="flex items-start gap-2 rounded border border-zinc-800 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-300">
+        <input
+          type="checkbox"
+          checked={expert}
+          onChange={(event) => setExpert(event.target.checked)}
+          className="mt-0.5 accent-zinc-400"
+        />
+        <span className="flex flex-col">
+          Solo utenti esperti
+          <span className="text-xs text-zinc-500">
+            Mostra le opzioni avanzate per usare Ollama (modelli locali o cloud)
+            al posto di Claude. Lascia disattivato se usi solo Claude.
+          </span>
+        </span>
+      </label>
+
       <fieldset className="flex flex-col gap-4">
         <legend className="mb-2 font-medium text-zinc-100">Provider AI</legend>
         <label className="flex flex-col gap-1 text-sm text-zinc-300">
@@ -225,7 +245,9 @@ export function AiSettingsForm({
               {chatProvider.fallback === "ollama" ? "Ollama" : "Claude"})
             </option>
             <option value="anthropic">Claude (Anthropic)</option>
-            <option value="ollama">Ollama (locale o cloud)</option>
+            {expert && (
+              <option value="ollama">Ollama (locale o cloud)</option>
+            )}
           </select>
           <span className="text-xs text-zinc-500">
             Con Ollama si usa il modello indicato nella sezione Ollama qui
@@ -272,6 +294,7 @@ export function AiSettingsForm({
         </p>
       </fieldset>
 
+      {expert && (
       <fieldset className="flex flex-col gap-4 border-t border-zinc-800 pt-4">
         <legend className="sr-only">Ollama</legend>
         <span className="font-medium text-zinc-100">Ollama</span>
@@ -312,6 +335,7 @@ export function AiSettingsForm({
           placeholder="chiave da ollama.com"
         />
       </fieldset>
+      )}
 
       <fieldset className="flex flex-col gap-4 border-t border-zinc-800 pt-4">
         <legend className="sr-only">Embeddings</legend>
@@ -332,7 +356,7 @@ export function AiSettingsForm({
           >
             <option value="">Predefinito ({embeddingsProvider.fallback})</option>
             <option value="voyage">Voyage AI</option>
-            <option value="ollama">Ollama (locale)</option>
+            {expert && <option value="ollama">Ollama (locale)</option>}
           </select>
         </label>
         <ApiKeyField
@@ -341,21 +365,23 @@ export function AiSettingsForm({
           status={voyageKey}
           placeholder="pa-…"
         />
-        <label className="flex flex-col gap-1 text-sm text-zinc-300">
-          Modello embeddings Ollama
-          <input
-            name="ollamaEmbedModel"
-            type="text"
-            defaultValue={ollamaEmbedModel.value ?? ""}
-            placeholder={
-              ollamaEmbedModel.fallback
-                ? `Predefinito: ${ollamaEmbedModel.fallback}`
-                : "es. bge-m3 (1024 dimensioni)"
-            }
-            list="ollama-embed-models"
-            className={inputClass}
-          />
-        </label>
+        {expert && (
+          <label className="flex flex-col gap-1 text-sm text-zinc-300">
+            Modello embeddings Ollama
+            <input
+              name="ollamaEmbedModel"
+              type="text"
+              defaultValue={ollamaEmbedModel.value ?? ""}
+              placeholder={
+                ollamaEmbedModel.fallback
+                  ? `Predefinito: ${ollamaEmbedModel.fallback}`
+                  : "es. bge-m3 (1024 dimensioni)"
+              }
+              list="ollama-embed-models"
+              className={inputClass}
+            />
+          </label>
+        )}
       </fieldset>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
