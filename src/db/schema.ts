@@ -56,7 +56,11 @@ export const embeddingsProviderEnum = pgEnum("embeddings_provider", [
   "ollama",
 ]);
 
-export const chatProviderEnum = pgEnum("chat_provider", ["anthropic", "ollama"]);
+export const chatProviderEnum = pgEnum("chat_provider", [
+  "anthropic",
+  "ollama",
+  "deepseek",
+]);
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -85,6 +89,11 @@ export const userSettings = pgTable("user_settings", {
   modelGm: text("model_gm"),
   modelSummary: text("model_summary"),
   modelImprove: text("model_improve"),
+  // DeepSeek: come Claude, ogni funzione ha il suo modello (null = default).
+  deepseekApiKey: text("deepseek_api_key"),
+  deepseekModelGm: text("deepseek_model_gm"),
+  deepseekModelSummary: text("deepseek_model_summary"),
+  deepseekModelImprove: text("deepseek_model_improve"),
   embeddingsProvider: embeddingsProviderEnum("embeddings_provider"),
   voyageApiKey: text("voyage_api_key"),
   ollamaHost: text("ollama_host"),

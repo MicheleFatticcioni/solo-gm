@@ -7,6 +7,7 @@ import {
   type Tool as OllamaTool,
   type ToolCall as OllamaToolCall,
 } from "ollama";
+import OpenAI from "openai";
 
 // Import relativi (niente alias @/): questo modulo è usato anche dal
 // worker, che gira con tsx senza la risoluzione dei path di Next.
@@ -42,9 +43,14 @@ export type LlmClient = {
 };
 
 export function createLlmClient(settings: AiSettings): LlmClient {
-  return settings.chatProvider === "ollama"
-    ? createOllamaLlm(settings)
-    : createAnthropicLlm(settings);
+  switch (settings.chatProvider) {
+    case "ollama":
+      return createOllamaLlm(settings);
+    case "deepseek":
+      return createDeepseekLlm(settings);
+    default:
+      return createAnthropicLlm(settings);
+  }
 }
 
 // Haiku non supporta il thinking adattivo (solo {type:"enabled", budget_tokens}
@@ -160,6 +166,209 @@ function createOllamaLlm(settings: AiSettings): LlmClient {
       };
     },
   };
+}
+
+// DeepSeek espone un'API compatibile OpenAI: si usa l'SDK OpenAI con
+// baseURL dedicata. Come per Ollama, si traduce da/verso il formato
+// Anthropic nativo dell'app; il flag thinking viene ignorato (il
+// ragionamento dipende dal modello scelto, es. deepseek-reasoner).
+const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
+
+function createDeepseekLlm(settings: AiSettings): LlmClient {
+  if (!settings.deepseekApiKey) {
+    throw new AiConfigError(
+      "Chiave API DeepSeek non configurata: aggiungila nella pagina Impostazioni.",
+    );
+  }
+  const client = new OpenAI({
+    apiKey: settings.deepseekApiKey,
+    baseURL: DEEPSEEK_BASE_URL,
+  });
+
+  return {
+    async chat(request, onTextDelta) {
+      const textParts: string[] = [];
+      // I tool call arrivano a frammenti indicizzati: id/nome nel primo
+      // chunk, gli argomenti (JSON) spezzati nei successivi.
+      const toolCalls = new Map<
+        number,
+        { id: string; name: string; args: string }
+      >();
+      let stopReason: string | null = null;
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      try {
+        const stream = await client.chat.completions.create({
+          model: request.model,
+          max_tokens: request.maxTokens,
+          messages: toOpenAiMessages(request.system, request.messages),
+          ...(request.tools
+            ? { tools: request.tools.map(toOpenAiTool) }
+            : {}),
+          stream: true,
+          stream_options: { include_usage: true },
+        });
+
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta;
+          if (delta?.content) {
+            textParts.push(delta.content);
+            onTextDelta?.(delta.content);
+          }
+          for (const call of delta?.tool_calls ?? []) {
+            const entry = toolCalls.get(call.index) ?? {
+              id: "",
+              name: "",
+              args: "",
+            };
+            if (call.id) entry.id = call.id;
+            if (call.function?.name) entry.name += call.function.name;
+            if (call.function?.arguments) entry.args += call.function.arguments;
+            toolCalls.set(call.index, entry);
+          }
+          const finish = chunk.choices[0]?.finish_reason;
+          if (finish) stopReason = finish;
+          if (chunk.usage) {
+            inputTokens = chunk.usage.prompt_tokens;
+            outputTokens = chunk.usage.completion_tokens;
+          }
+        }
+      } catch (error) {
+        throw translateDeepseekError(error, request.model);
+      }
+
+      const content: Anthropic.ContentBlockParam[] = [];
+      const text = textParts.join("");
+      if (text) content.push({ type: "text", text });
+      for (const call of toolCalls.values()) {
+        content.push({
+          type: "tool_use",
+          id: call.id || `deepseek-${randomUUID()}`,
+          name: call.name,
+          input: parseToolArguments(call.args),
+        });
+      }
+
+      return {
+        content,
+        stopReason: stopReason === "tool_calls" ? "tool_use" : "end_turn",
+        usage: { inputTokens, outputTokens },
+      };
+    },
+  };
+}
+
+function parseToolArguments(args: string): Record<string, unknown> {
+  if (!args.trim()) return {};
+  try {
+    return JSON.parse(args) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function toOpenAiMessages(
+  system: string | Anthropic.TextBlockParam[],
+  messages: Anthropic.MessageParam[],
+): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  const systemText =
+    typeof system === "string"
+      ? system
+      : system.map((block) => block.text).join("\n\n");
+  const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemText },
+  ];
+
+  for (const message of messages) {
+    if (typeof message.content === "string") {
+      result.push({ role: message.role, content: message.content });
+      continue;
+    }
+
+    const textParts: string[] = [];
+    const calls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] = [];
+    const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] =
+      [];
+
+    for (const block of message.content) {
+      if (block.type === "text") {
+        textParts.push(block.text);
+      } else if (block.type === "tool_use") {
+        calls.push({
+          id: block.id,
+          type: "function",
+          function: {
+            name: block.name,
+            arguments: JSON.stringify(block.input ?? {}),
+          },
+        });
+      } else if (block.type === "tool_result") {
+        toolResults.push({
+          role: "tool",
+          tool_call_id: block.tool_use_id,
+          content: toolResultText(block),
+        });
+      }
+      // Altri blocchi (thinking, ecc.): nessun equivalente OpenAI, si scartano.
+    }
+
+    if (message.role === "assistant") {
+      if (textParts.length > 0 || calls.length > 0) {
+        result.push({
+          role: "assistant",
+          content: textParts.length > 0 ? textParts.join("\n\n") : null,
+          ...(calls.length > 0 ? { tool_calls: calls } : {}),
+        });
+      }
+    } else if (textParts.length > 0) {
+      result.push({ role: "user", content: textParts.join("\n\n") });
+    }
+    result.push(...toolResults);
+  }
+
+  return result;
+}
+
+function toOpenAiTool(
+  tool: Anthropic.Tool,
+): OpenAI.Chat.Completions.ChatCompletionTool {
+  return {
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema as Record<string, unknown>,
+    },
+  };
+}
+
+// Come per Ollama: gli errori risolvibili dall'utente (chiave sbagliata,
+// credito esaurito, modello inesistente) diventano AiConfigError.
+function translateDeepseekError(error: unknown, model: string): unknown {
+  if (error instanceof OpenAI.APIConnectionError) {
+    return new AiConfigError(
+      `Impossibile raggiungere DeepSeek (${DEEPSEEK_BASE_URL}): verifica la connessione a internet.`,
+    );
+  }
+  if (error instanceof OpenAI.APIError) {
+    if (error.status === 401) {
+      return new AiConfigError(
+        "DeepSeek ha rifiutato la chiave API: controllala nella pagina Impostazioni.",
+      );
+    }
+    if (error.status === 402) {
+      return new AiConfigError(
+        "Credito DeepSeek esaurito: ricarica il saldo su platform.deepseek.com.",
+      );
+    }
+    if (error.status === 400 && /model/i.test(error.message)) {
+      return new AiConfigError(
+        `Modello DeepSeek "${model}" non valido: correggilo nella pagina Impostazioni (es. deepseek-chat o deepseek-reasoner).`,
+      );
+    }
+  }
+  return error;
 }
 
 function toOllamaMessages(

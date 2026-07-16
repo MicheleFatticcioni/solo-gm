@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-// Intestazione con rinomina inline ed eliminazione della campagna.
+// Intestazione con rinomina inline, duplicazione ed eliminazione della campagna.
 export function CampaignHeader({
   campaign,
 }: {
@@ -13,6 +13,7 @@ export function CampaignHeader({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(campaign.name);
   const [saving, setSaving] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
@@ -36,6 +37,23 @@ export function CampaignHeader({
       return;
     }
     setEditing(false);
+    router.refresh();
+  }
+
+  async function duplicateCampaign() {
+    setDuplicating(true);
+    setError(null);
+    const res = await fetch(`/api/campaigns/${campaign.id}/duplicate`, {
+      method: "POST",
+    });
+    setDuplicating(false);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      setError(body?.error ?? "Errore durante la duplicazione");
+      return;
+    }
+    const copy = await res.json();
+    router.push(`/campaigns/${copy.id}`);
     router.refresh();
   }
 
@@ -107,8 +125,17 @@ export function CampaignHeader({
         )}
         <button
           type="button"
+          onClick={duplicateCampaign}
+          disabled={duplicating}
+          title="Crea una copia completa: messaggi, documenti, wiki e riassunti"
+          className="ml-auto rounded border border-zinc-700 px-3 py-1.5 text-sm hover:border-zinc-500 disabled:opacity-50"
+        >
+          {duplicating ? "Duplicazione…" : "Duplica campagna"}
+        </button>
+        <button
+          type="button"
           onClick={deleteCampaign}
-          className="ml-auto rounded border border-red-900 px-3 py-1.5 text-sm text-red-400 hover:border-red-700 hover:text-red-300"
+          className="rounded border border-red-900 px-3 py-1.5 text-sm text-red-400 hover:border-red-700 hover:text-red-300"
         >
           Elimina campagna
         </button>
