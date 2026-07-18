@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: solo-gm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sologm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: sologm
+    # Niente "ports": Postgres resta raggiungibile solo dalla rete Docker
+    # interna (app/worker/migrate), non dall'host pubblico.
+    volumes:
+      - sologm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sologm -d sologm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Applica le migrazioni e crea l'utente applicativo, poi termina.
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://sologm:${POSTGRES_PASSWORD}@postgres:5432/sologm
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "npm run db:migrate && npm run db:seed"
+
+  app:
+    build: .
+    container_name: solo-gm-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://sologm:${POSTGRES_PASSWORD}@postgres:5432/sologm
+    # Niente pubblicazione diretta della porta: Caddy fa da reverse proxy
+    # e parla con "app" sulla rete Docker interna.
+    expose:
+      - "4200"
+    volumes:
+      - sologm_uploads:/app/storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build: .
+    container_name: solo-gm-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://sologm:${POSTGRES_PASSWORD}@postgres:5432/sologm
+    volumes:
+      - sologm_uploads:/app/storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: npm run worker
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: solo-gm-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  sologm_pgdata:
+  sologm_uploads:
+  caddy_data:
+  caddy_config:

@@ -62,6 +62,15 @@ export const chatProviderEnum = pgEnum("chat_provider", [
   "deepseek",
 ]);
 
+export const ttsProviderEnum = pgEnum("tts_provider", [
+  "elevenlabs",
+  "openai",
+]);
+
+// Lettura vocale dei messaggi del GM: automatica (parte a fine
+// generazione), a richiesta (icona megafono sul messaggio) o spenta.
+export const ttsModeEnum = pgEnum("tts_mode", ["auto", "on_demand", "off"]);
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   firstName: text("first_name").notNull(),
@@ -102,6 +111,18 @@ export const userSettings = pgTable("user_settings", {
   // Modello chat usato per tutte le funzioni quando il provider è Ollama.
   ollamaChatModel: text("ollama_chat_model"),
   ollamaEmbedModel: text("ollama_embed_model"),
+  // Lettura vocale (TTS) dei messaggi del GM. Come per la chat: colonne
+  // null-able, null = usa fallback env/default.
+  ttsMode: ttsModeEnum("tts_mode"),
+  ttsProvider: ttsProviderEnum("tts_provider"),
+  elevenlabsApiKey: text("elevenlabs_api_key"),
+  elevenlabsVoiceId: text("elevenlabs_voice_id"),
+  elevenlabsTtsModel: text("elevenlabs_tts_model"),
+  openaiApiKey: text("openai_api_key"),
+  openaiTtsModel: text("openai_tts_model"),
+  openaiTtsVoice: text("openai_tts_voice"),
+  // Istruzioni di stile per gpt-4o-mini-tts (es. "narratore cupo e teso").
+  openaiTtsInstructions: text("openai_tts_instructions"),
   // Mostra le opzioni avanzate (sezione Ollama) nella pagina Impostazioni.
   // La maggior parte degli utenti usa solo Claude e non ha bisogno di vederle.
   expertMode: boolean("expert_mode").notNull().default(false),

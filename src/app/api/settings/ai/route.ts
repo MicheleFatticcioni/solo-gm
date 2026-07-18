@@ -30,6 +30,15 @@ const aiSchema = z
     ollamaApiKey: z.string().trim().min(1).nullable().optional(),
     ollamaChatModel: z.string().trim().min(1).nullable().optional(),
     ollamaEmbedModel: z.string().trim().min(1).nullable().optional(),
+    ttsMode: z.enum(["auto", "on_demand", "off"]).nullable().optional(),
+    ttsProvider: z.enum(["elevenlabs", "openai"]).nullable().optional(),
+    elevenlabsApiKey: z.string().trim().min(1).nullable().optional(),
+    elevenlabsVoiceId: z.string().trim().min(1).nullable().optional(),
+    elevenlabsTtsModel: z.string().trim().min(1).nullable().optional(),
+    openaiApiKey: z.string().trim().min(1).nullable().optional(),
+    openaiTtsModel: z.string().trim().min(1).nullable().optional(),
+    openaiTtsVoice: z.string().trim().min(1).nullable().optional(),
+    openaiTtsInstructions: z.string().trim().min(1).nullable().optional(),
     expertMode: z.boolean().optional(),
   })
   .refine((data) => Object.values(data).some((value) => value !== undefined), {

@@ -6,6 +6,10 @@ import { getUserId } from "@/lib/session";
 import {
   DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_DEEPSEEK_MODEL,
+  DEFAULT_ELEVENLABS_TTS_MODEL,
+  DEFAULT_ELEVENLABS_VOICE_ID,
+  DEFAULT_OPENAI_TTS_MODEL,
+  DEFAULT_OPENAI_TTS_VOICE,
 } from "@/lib/settings";
 
 import { AiSettingsForm, type KeyStatus } from "./ai-settings-form";
@@ -114,6 +118,41 @@ export default async function ImpostazioniPage() {
           ollamaEmbedModel={{
             value: row?.ollamaEmbedModel ?? null,
             fallback: process.env.OLLAMA_EMBED_MODEL ?? null,
+          }}
+          ttsMode={{
+            value: row?.ttsMode ?? null,
+            fallback: process.env.TTS_MODE ?? "off",
+          }}
+          ttsProvider={{
+            value: row?.ttsProvider ?? null,
+            fallback: process.env.TTS_PROVIDER ?? "elevenlabs",
+          }}
+          elevenlabsKey={keyStatus(
+            row?.elevenlabsApiKey,
+            process.env.ELEVENLABS_API_KEY,
+          )}
+          elevenlabsVoiceId={{
+            value: row?.elevenlabsVoiceId ?? null,
+            fallback:
+              process.env.ELEVENLABS_VOICE_ID ?? DEFAULT_ELEVENLABS_VOICE_ID,
+          }}
+          elevenlabsTtsModel={{
+            value: row?.elevenlabsTtsModel ?? null,
+            fallback:
+              process.env.ELEVENLABS_TTS_MODEL ?? DEFAULT_ELEVENLABS_TTS_MODEL,
+          }}
+          openaiKey={keyStatus(row?.openaiApiKey, process.env.OPENAI_API_KEY)}
+          openaiTtsModel={{
+            value: row?.openaiTtsModel ?? null,
+            fallback: process.env.OPENAI_TTS_MODEL ?? DEFAULT_OPENAI_TTS_MODEL,
+          }}
+          openaiTtsVoice={{
+            value: row?.openaiTtsVoice ?? null,
+            fallback: process.env.OPENAI_TTS_VOICE ?? DEFAULT_OPENAI_TTS_VOICE,
+          }}
+          openaiTtsInstructions={{
+            value: row?.openaiTtsInstructions ?? null,
+            fallback: process.env.OPENAI_TTS_INSTRUCTIONS ?? null,
           }}
           expertMode={row?.expertMode ?? false}
         />
