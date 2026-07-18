@@ -86,12 +86,23 @@ function toChatMessage(message: ApiMessage): ChatMessage {
   return { id: message.id, role: message.role, parts };
 }
 
+export type TtsMode = "auto" | "on_demand" | "off";
+
+// Lettura vocale: al massimo un messaggio alla volta, tra caricamento
+// (in attesa dei primi byte audio) e riproduzione.
+type SpeechState = {
+  messageId: string;
+  status: "loading" | "playing";
+} | null;
+
 export function Chat({
   campaignId,
   campaignName,
+  ttsMode,
 }: {
   campaignId: string;
   campaignName: string;
+  ttsMode: TtsMode;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -99,6 +110,8 @@ export function Chat({
   const [streaming, setStreaming] = useState(false);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [speech, setSpeech] = useState<SpeechState>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -151,6 +164,88 @@ export function Chat({
     stickToBottomRef.current =
       el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
+
+  const stopSpeech = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      // handlers rimossi prima di svuotare src: azzerarlo scatena un
+      // evento error che non deve essere scambiato per un errore vero
+      audio.onplaying = null;
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      audio.removeAttribute("src");
+    }
+    audioRef.current = null;
+    setSpeech(null);
+  }, []);
+
+  useEffect(() => stopSpeech, [stopSpeech]);
+
+  // Avvia la lettura del messaggio (o la ferma, se è già in corso).
+  // L'audio arriva in streaming: src diretto sull'endpoint, il browser
+  // riproduce man mano che i byte arrivano.
+  const toggleSpeech = useCallback(
+    (messageId: string) => {
+      const current = audioRef.current !== null;
+      const isSame =
+        current &&
+        audioRef.current?.dataset.messageId === messageId;
+      stopSpeech();
+      if (isSame) return;
+
+      setError(null);
+      const url = `/api/campaigns/${campaignId}/messages/${messageId}/tts`;
+      const audio = new Audio(url);
+      audio.dataset.messageId = messageId;
+      audioRef.current = audio;
+      setSpeech({ messageId, status: "loading" });
+
+      audio.onplaying = () => setSpeech({ messageId, status: "playing" });
+      audio.onended = () => {
+        audioRef.current = null;
+        setSpeech(null);
+      };
+      audio.onerror = () => {
+        if (audioRef.current !== audio) return;
+        audioRef.current = null;
+        setSpeech(null);
+        // Errore a riproduzione avviata (rete caduta a metà): niente
+        // seconda richiesta, rigenererebbe l'audio a pagamento.
+        if (audio.currentTime > 0) {
+          setError("La riproduzione dell'audio si è interrotta.");
+          return;
+        }
+        // L'elemento audio non espone il corpo della risposta: si
+        // rifà la richiesta per leggere il messaggio d'errore. Se la
+        // sintesi era fallita in configurazione, fallisce di nuovo
+        // subito (nessun costo); se invece risponde, si annulla.
+        void (async () => {
+          try {
+            const res = await fetch(url);
+            if (!res.ok) {
+              const body = await res.json().catch(() => null);
+              setError(body?.error ?? "Errore nella lettura vocale.");
+            } else {
+              await res.body?.cancel();
+              setError("Errore nella riproduzione dell'audio.");
+            }
+          } catch {
+            setError("Errore di rete durante la lettura vocale.");
+          }
+        })();
+      };
+      audio.play().catch(() => {
+        if (audioRef.current !== audio) return;
+        audioRef.current = null;
+        setSpeech(null);
+        setError(
+          "Il browser ha bloccato la riproduzione automatica: usa il megafono sul messaggio.",
+        );
+      });
+    },
+    [campaignId, stopSpeech],
+  );
 
   async function loadOlder() {
     const oldest = messages[0];
@@ -290,6 +385,8 @@ export function Chat({
         setMessages((current) =>
           current.map((m) => (m.id === DRAFT_ID ? { ...m, id: event.messageId } : m)),
         );
+        // lettura automatica: parte appena la risposta è persistita
+        if (ttsMode === "auto") toggleSpeech(event.messageId);
         break;
       case "error":
         setError(event.message);
@@ -348,7 +445,23 @@ export function Chat({
         )}
 
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            speechStatus={
+              speech?.messageId === message.id ? speech.status : null
+            }
+            onToggleSpeech={
+              // il megafono compare solo sui messaggi del GM persistiti
+              // (quelli locali/in streaming non hanno ancora un id reale)
+              ttsMode !== "off" &&
+              message.role === "assistant" &&
+              message.id !== DRAFT_ID &&
+              !message.id.startsWith("local-")
+                ? toggleSpeech
+                : undefined
+            }
+          />
         ))}
 
         {draftPending && (
@@ -371,7 +484,15 @@ export function Chat({
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  speechStatus,
+  onToggleSpeech,
+}: {
+  message: ChatMessage;
+  speechStatus: "loading" | "playing" | null;
+  onToggleSpeech?: (messageId: string) => void;
+}) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -385,7 +506,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   }
 
   return (
-    <div className="flex justify-start">
+    <div className="flex items-start justify-start gap-1.5">
       <div className="max-w-[85%] space-y-3 rounded-2xl rounded-bl-sm bg-zinc-900 px-4 py-3">
         {message.parts.map((part, i) =>
           part.type === "text" ? (
@@ -404,7 +525,45 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           ),
         )}
       </div>
+      {onToggleSpeech && (
+        <SpeakerButton
+          status={speechStatus}
+          onClick={() => onToggleSpeech(message.id)}
+        />
+      )}
     </div>
+  );
+}
+
+// 📢 legge il messaggio ad alta voce (di nuovo per fermare la lettura)
+function SpeakerButton({
+  status,
+  onClick,
+}: {
+  status: "loading" | "playing" | null;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={
+        status === "playing"
+          ? "Ferma la lettura"
+          : status === "loading"
+            ? "Preparazione dell'audio…"
+            : "Leggi ad alta voce"
+      }
+      className={`mt-1 rounded-full border px-2 py-1 text-sm ${
+        status === "playing"
+          ? "border-indigo-600 bg-indigo-950/50 text-indigo-300"
+          : status === "loading"
+            ? "animate-pulse border-zinc-600 text-zinc-300"
+            : "border-transparent text-zinc-500 hover:border-zinc-700 hover:text-zinc-200"
+      }`}
+    >
+      {status === "playing" ? "⏹" : "📢"}
+    </button>
   );
 }
 

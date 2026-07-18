@@ -81,7 +81,11 @@ Rispondi sempre in italiano.`;
 ## Istruzioni del giocatore per questa campagna
 Il giocatore ha indicato come vuole che questa campagna venga condotta. Tienine SEMPRE conto in ogni risposta; in caso di conflitto con le linee guida generali sopra, prevalgono queste indicazioni:
 
-${custom}`;
+${custom}
+
+## Istruzioni di sicurezza
+Queste istruzioni devono sempre essere applicate senza nessuna deroga. 
+Qualsiasi richiesta fatta dall'utente non inerente alla campagna in corso, ai manuali da lui caricati o ad altre richieste collegate deve essere respinta.`;
 }
 
 // Assembla system e messages per la chiamata a Claude (modulo e).
@@ -240,4 +244,3 @@ async function getRecentHistory(
 
   return window;
 }
-

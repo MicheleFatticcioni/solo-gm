@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { parseId } from "@/lib/api";
 import { getCampaign } from "@/lib/queries";
 import { getUserId } from "@/lib/session";
+import { getAiSettings } from "@/lib/settings";
 
 import { Chat } from "./chat";
 
@@ -20,5 +21,13 @@ export default async function PlayPage({
   const campaign = await getCampaign(userId, id);
   if (!campaign) notFound();
 
-  return <Chat campaignId={campaign.id} campaignName={campaign.name} />;
+  const { ttsMode } = await getAiSettings(userId);
+
+  return (
+    <Chat
+      campaignId={campaign.id}
+      campaignName={campaign.name}
+      ttsMode={ttsMode}
+    />
+  );
 }

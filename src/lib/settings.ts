@@ -7,9 +7,16 @@ import { userSettings } from "../db/schema";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
 export const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
+export const DEFAULT_ELEVENLABS_TTS_MODEL = "eleven_flash_v2_5";
+// George: voce multilingue predefinita di ElevenLabs, adatta alla narrazione.
+export const DEFAULT_ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
+export const DEFAULT_OPENAI_TTS_MODEL = "gpt-4o-mini-tts";
+export const DEFAULT_OPENAI_TTS_VOICE = "onyx";
 
 export type ChatProvider = "anthropic" | "ollama" | "deepseek";
 export type EmbeddingsProvider = "voyage" | "ollama";
+export type TtsProvider = "elevenlabs" | "openai";
+export type TtsMode = "auto" | "on_demand" | "off";
 
 export type AiSettings = {
   chatProvider: ChatProvider;
@@ -27,6 +34,15 @@ export type AiSettings = {
   ollamaApiKey: string | null;
   ollamaChatModel: string | null;
   ollamaEmbedModel: string | null;
+  ttsMode: TtsMode;
+  ttsProvider: TtsProvider;
+  elevenlabsApiKey: string | null;
+  elevenlabsVoiceId: string;
+  elevenlabsTtsModel: string;
+  openaiApiKey: string | null;
+  openaiTtsModel: string;
+  openaiTtsVoice: string;
+  openaiTtsInstructions: string | null;
 };
 
 // Configurazione mancante che l'utente può risolvere da solo dalla
@@ -85,6 +101,33 @@ export async function getAiSettings(userId?: string): Promise<AiSettings> {
       row?.ollamaChatModel ?? process.env.OLLAMA_CHAT_MODEL ?? null,
     ollamaEmbedModel:
       row?.ollamaEmbedModel ?? process.env.OLLAMA_EMBED_MODEL ?? null,
+    ttsMode:
+      row?.ttsMode ?? (process.env.TTS_MODE as TtsMode | undefined) ?? "off",
+    ttsProvider:
+      row?.ttsProvider ??
+      (process.env.TTS_PROVIDER as TtsProvider | undefined) ??
+      "elevenlabs",
+    elevenlabsApiKey:
+      row?.elevenlabsApiKey ?? process.env.ELEVENLABS_API_KEY ?? null,
+    elevenlabsVoiceId:
+      row?.elevenlabsVoiceId ??
+      process.env.ELEVENLABS_VOICE_ID ??
+      DEFAULT_ELEVENLABS_VOICE_ID,
+    elevenlabsTtsModel:
+      row?.elevenlabsTtsModel ??
+      process.env.ELEVENLABS_TTS_MODEL ??
+      DEFAULT_ELEVENLABS_TTS_MODEL,
+    openaiApiKey: row?.openaiApiKey ?? process.env.OPENAI_API_KEY ?? null,
+    openaiTtsModel:
+      row?.openaiTtsModel ??
+      process.env.OPENAI_TTS_MODEL ??
+      DEFAULT_OPENAI_TTS_MODEL,
+    openaiTtsVoice:
+      row?.openaiTtsVoice ??
+      process.env.OPENAI_TTS_VOICE ??
+      DEFAULT_OPENAI_TTS_VOICE,
+    openaiTtsInstructions:
+      row?.openaiTtsInstructions ?? process.env.OPENAI_TTS_INSTRUCTIONS ?? null,
   };
 }
 

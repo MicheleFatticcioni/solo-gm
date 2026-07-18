@@ -32,6 +32,24 @@ const OLLAMA_CHAT_MODELS = [
   "deepseek-v3.1:671b-cloud",
 ];
 
+const ELEVENLABS_TTS_MODELS = ["eleven_flash_v2_5", "eleven_turbo_v2_5"];
+
+const OPENAI_TTS_MODELS = ["gpt-4o-mini-tts", "tts-1", "tts-1-hd"];
+
+const OPENAI_TTS_VOICES = [
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "fable",
+  "nova",
+  "onyx",
+  "sage",
+  "shimmer",
+  "verse",
+];
+
 function keyStatusLabel(status: KeyStatus): string {
   if (!status.source) return "Non configurata";
   const origin =
@@ -159,6 +177,15 @@ export function AiSettingsForm({
   ollamaApiKey,
   ollamaChatModel,
   ollamaEmbedModel,
+  ttsMode,
+  ttsProvider,
+  elevenlabsKey,
+  elevenlabsVoiceId,
+  elevenlabsTtsModel,
+  openaiKey,
+  openaiTtsModel,
+  openaiTtsVoice,
+  openaiTtsInstructions,
   expertMode,
 }: {
   chatProvider: Overridable;
@@ -176,6 +203,15 @@ export function AiSettingsForm({
   ollamaApiKey: KeyStatus;
   ollamaChatModel: Overridable;
   ollamaEmbedModel: Overridable;
+  ttsMode: Overridable;
+  ttsProvider: Overridable;
+  elevenlabsKey: KeyStatus;
+  elevenlabsVoiceId: Overridable;
+  elevenlabsTtsModel: Overridable;
+  openaiKey: KeyStatus;
+  openaiTtsModel: Overridable;
+  openaiTtsVoice: Overridable;
+  openaiTtsInstructions: Overridable;
   expertMode: boolean;
 }) {
   const router = useRouter();
@@ -189,11 +225,18 @@ export function AiSettingsForm({
   const [embedProviderValue, setEmbedProviderValue] = useState(
     embeddingsProvider.value ?? "",
   );
+  const [ttsModeValue, setTtsModeValue] = useState(ttsMode.value ?? "");
+  const [ttsProviderValue, setTtsProviderValue] = useState(
+    ttsProvider.value ?? "",
+  );
 
   const effectiveChatProvider =
     chatProviderValue || chatProvider.fallback || "anthropic";
   const effectiveEmbedProvider =
     embedProviderValue || embeddingsProvider.fallback || "voyage";
+  const effectiveTtsMode = ttsModeValue || ttsMode.fallback || "off";
+  const effectiveTtsProvider =
+    ttsProviderValue || ttsProvider.fallback || "elevenlabs";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -229,6 +272,15 @@ export function AiSettingsForm({
       ollamaApiKey: secret("ollamaApiKey"),
       ollamaChatModel: text("ollamaChatModel") || null,
       ollamaEmbedModel: text("ollamaEmbedModel") || null,
+      ttsMode: text("ttsMode") || null,
+      ttsProvider: text("ttsProvider") || null,
+      elevenlabsApiKey: secret("elevenlabsApiKey"),
+      elevenlabsVoiceId: text("elevenlabsVoiceId") || null,
+      elevenlabsTtsModel: text("elevenlabsTtsModel") || null,
+      openaiApiKey: secret("openaiApiKey"),
+      openaiTtsModel: text("openaiTtsModel") || null,
+      openaiTtsVoice: text("openaiTtsVoice") || null,
+      openaiTtsInstructions: text("openaiTtsInstructions") || null,
       expertMode: expert,
     };
 
@@ -280,6 +332,21 @@ export function AiSettingsForm({
       <datalist id="ollama-chat-models">
         {OLLAMA_CHAT_MODELS.map((model) => (
           <option key={model} value={model} />
+        ))}
+      </datalist>
+      <datalist id="elevenlabs-tts-models">
+        {ELEVENLABS_TTS_MODELS.map((model) => (
+          <option key={model} value={model} />
+        ))}
+      </datalist>
+      <datalist id="openai-tts-models">
+        {OPENAI_TTS_MODELS.map((model) => (
+          <option key={model} value={model} />
+        ))}
+      </datalist>
+      <datalist id="openai-tts-voices">
+        {OPENAI_TTS_VOICES.map((voice) => (
+          <option key={voice} value={voice} />
         ))}
       </datalist>
 
@@ -501,6 +568,146 @@ export function AiSettingsForm({
             className={inputClass}
           />
         </label>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-4 border-t border-zinc-800 pt-4">
+        <legend className="sr-only">Lettura vocale</legend>
+        <span className="font-medium text-zinc-100">
+          Lettura vocale dei messaggi del GM
+        </span>
+        <label className="flex flex-col gap-1 text-sm text-zinc-300">
+          Modalità
+          <select
+            name="ttsMode"
+            value={ttsModeValue}
+            onChange={(event) => setTtsModeValue(event.target.value)}
+            className={inputClass}
+          >
+            <option value="">
+              Predefinita (
+              {ttsMode.fallback === "auto"
+                ? "automatica"
+                : ttsMode.fallback === "on_demand"
+                  ? "a richiesta"
+                  : "disattivata"}
+              )
+            </option>
+            <option value="off">Disattivata</option>
+            <option value="on_demand">A richiesta (megafono sul messaggio)</option>
+            <option value="auto">Automatica (a fine risposta)</option>
+          </select>
+          <span className="text-xs text-zinc-500">
+            Con «a richiesta» ogni messaggio del GM mostra un megafono per
+            ascoltarlo; con «automatica» la lettura parte da sola appena la
+            risposta è completa.
+          </span>
+        </label>
+        <label
+          className={`flex flex-col gap-1 text-sm text-zinc-300 ${
+            effectiveTtsMode === "off" ? "hidden" : ""
+          }`}
+        >
+          Provider voce
+          <select
+            name="ttsProvider"
+            value={ttsProviderValue}
+            onChange={(event) => setTtsProviderValue(event.target.value)}
+            className={inputClass}
+          >
+            <option value="">
+              Predefinito (
+              {ttsProvider.fallback === "openai" ? "OpenAI" : "ElevenLabs"})
+            </option>
+            <option value="elevenlabs">ElevenLabs (Flash/Turbo v2.5)</option>
+            <option value="openai">OpenAI (gpt-4o-mini-tts)</option>
+          </select>
+        </label>
+
+        <div
+          className={
+            effectiveTtsMode !== "off" && effectiveTtsProvider === "elevenlabs"
+              ? "flex flex-col gap-4"
+              : "hidden"
+          }
+        >
+          <ApiKeyField
+            label="Chiave API ElevenLabs"
+            name="elevenlabsApiKey"
+            status={elevenlabsKey}
+            placeholder="xi-…"
+          />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm text-zinc-300">
+              Voce (voice ID)
+              <input
+                name="elevenlabsVoiceId"
+                type="text"
+                defaultValue={elevenlabsVoiceId.value ?? ""}
+                placeholder={
+                  elevenlabsVoiceId.fallback
+                    ? `Predefinita: ${elevenlabsVoiceId.fallback}`
+                    : undefined
+                }
+                className={inputClass}
+              />
+              <span className="text-xs text-zinc-500">
+                L&apos;ID si copia dalla Voice Library di elevenlabs.io. Vuoto =
+                voce predefinita (George, multilingue).
+              </span>
+            </label>
+            <ModelField
+              label="Modello TTS"
+              description="eleven_flash_v2_5 è il più economico; turbo è leggermente più espressivo."
+              name="elevenlabsTtsModel"
+              model={elevenlabsTtsModel}
+              listId="elevenlabs-tts-models"
+            />
+          </div>
+        </div>
+
+        <div
+          className={
+            effectiveTtsMode !== "off" && effectiveTtsProvider === "openai"
+              ? "flex flex-col gap-4"
+              : "hidden"
+          }
+        >
+          <ApiKeyField
+            label="Chiave API OpenAI"
+            name="openaiApiKey"
+            status={openaiKey}
+            placeholder="sk-…"
+          />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <ModelField
+              label="Modello TTS"
+              description="gpt-4o-mini-tts supporta le istruzioni di stile."
+              name="openaiTtsModel"
+              model={openaiTtsModel}
+              listId="openai-tts-models"
+            />
+            <ModelField
+              label="Voce"
+              description="Voce predefinita: onyx (profonda, adatta alla narrazione)."
+              name="openaiTtsVoice"
+              model={openaiTtsVoice}
+              listId="openai-tts-voices"
+            />
+          </div>
+          <label className="flex flex-col gap-1 text-sm text-zinc-300">
+            Istruzioni di stile (facoltative)
+            <input
+              name="openaiTtsInstructions"
+              type="text"
+              defaultValue={openaiTtsInstructions.value ?? ""}
+              placeholder='es. "Narratore di un GdR horror: tono cupo e teso, sussurra le battute tra virgolette"'
+              className={inputClass}
+            />
+            <span className="text-xs text-zinc-500">
+              Solo per gpt-4o-mini-tts: descrivi come deve recitare la voce.
+            </span>
+          </label>
+        </div>
       </fieldset>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
