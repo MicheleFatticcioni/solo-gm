@@ -28,6 +28,7 @@ export default async function PlayPage({
       campaignId={campaign.id}
       campaignName={campaign.name}
       ttsMode={ttsMode}
+      concluded={campaign.concludedAt !== null}
     />
   );
 }

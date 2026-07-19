@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { messages } from "@/db/schema";
 import { notFound, parseId, unauthorized } from "@/lib/api";
+import { asciiSlug } from "@/lib/format";
 import { getActiveSummary, getCampaign } from "@/lib/queries";
 import { getUserId } from "@/lib/session";
 import { CORE_SLUG, getWikiPage } from "@/lib/wiki";
@@ -58,15 +59,7 @@ export async function GET(
     transcript || "_Nessun messaggio._",
   ].join("\n\n");
 
-  // Slug ASCII per il filename: gli header non gradiscono i caratteri
-  // non latini e le virgolette.
-  const slug =
-    campaign.name
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "") || "campagna";
+  const slug = asciiSlug(campaign.name);
 
   return new Response(markdown, {
     headers: {

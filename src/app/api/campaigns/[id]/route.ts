@@ -34,6 +34,9 @@ const patchSchema = z
       .trim()
       .transform((value) => value || null)
       .optional(),
+    // Switch "campagna conclusa": true imposta concluded_at a ora,
+    // false lo azzera (la campagna torna giocabile).
+    concluded: z.boolean().optional(),
   })
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
     message: "Nessun campo da aggiornare",
@@ -51,9 +54,15 @@ export async function PATCH(request: Request, { params }: Params) {
     return badRequest(parsed.error.issues[0]?.message ?? "Dati non validi");
   }
 
+  const { concluded, ...fields } = parsed.data;
   const [updated] = await db
     .update(campaigns)
-    .set(parsed.data)
+    .set({
+      ...fields,
+      ...(concluded !== undefined
+        ? { concludedAt: concluded ? new Date() : null }
+        : {}),
+    })
     .where(and(eq(campaigns.id, id), eq(campaigns.userId, userId)))
     .returning();
   if (!updated) return notFound();

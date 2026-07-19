@@ -337,6 +337,15 @@ export function CampaignWiki({
           >
             Esporta partita
           </a>
+          {pageCount > 0 && (
+            <a
+              href={`/api/campaigns/${campaignId}/wiki/export`}
+              title="Scarica la wiki come zip: un file markdown per pagina, nelle rispettive cartelle"
+              className="rounded border border-zinc-700 px-3 py-1.5 text-sm hover:border-zinc-500"
+            >
+              Esporta wiki
+            </a>
+          )}
         </div>
       </div>
 

@@ -15,6 +15,7 @@ import { getWikiPages, WIKI_FOLDERS, WIKI_FOLDER_LABELS } from "@/lib/wiki";
 
 import { CampaignHeader } from "./campaign-header";
 import { CampaignInstructions } from "./campaign-instructions";
+import { CampaignModule } from "./campaign-module";
 import { CampaignWiki } from "./campaign-wiki";
 import { ManageDocuments } from "./manage-documents";
 
@@ -53,6 +54,7 @@ export default async function CampaignPage({
   }));
 
   const hasReadyDocument = associated.some((doc) => doc.status === "ready");
+  const concluded = campaign.concludedAt !== null;
 
   return (
     <div className="space-y-8">
@@ -61,11 +63,19 @@ export default async function CampaignPage({
           id: campaign.id,
           name: campaign.name,
           gameSystem: campaign.gameSystem,
+          concludedAt: campaign.concludedAt?.toISOString() ?? null,
         }}
       />
 
       <div className="flex items-center gap-3">
-        {hasReadyDocument ? (
+        {concluded ? (
+          <Link
+            href={`/campaigns/${campaign.id}/play`}
+            className="rounded border border-zinc-700 px-5 py-2.5 font-medium hover:border-zinc-500"
+          >
+            Rileggi la partita
+          </Link>
+        ) : hasReadyDocument ? (
           <Link
             href={`/campaigns/${campaign.id}/play`}
             className="rounded bg-indigo-600 px-5 py-2.5 font-medium text-white hover:bg-indigo-500"
@@ -80,12 +90,28 @@ export default async function CampaignPage({
             Avvia partita
           </span>
         )}
-        {!hasReadyDocument && (
+        {!concluded && !hasReadyDocument && (
           <span className="text-sm text-zinc-500">
             Serve almeno un documento pronto.
           </span>
         )}
       </div>
+
+      {concluded && (
+        <CampaignModule
+          campaignId={campaign.id}
+          campaignName={campaign.name}
+          initialModule={{
+            // Retrocompatibilità: moduli generati prima della colonna
+            // module_status hanno il markdown ma status null.
+            status:
+              campaign.moduleStatus ??
+              (campaign.moduleMarkdown ? "ready" : null),
+            generatedAt: campaign.moduleGeneratedAt?.toISOString() ?? null,
+            error: campaign.moduleError,
+          }}
+        />
+      )}
 
       <section>
         <div className="mb-3 flex items-center justify-between">

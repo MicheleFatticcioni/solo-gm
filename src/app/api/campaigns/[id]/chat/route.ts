@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { db } from "@/db";
 import { campaigns, campaignSummaries, messages } from "@/db/schema";
-import { badRequest, notFound, parseId, unauthorized } from "@/lib/api";
+import { badRequest, forbidden, notFound, parseId, unauthorized } from "@/lib/api";
 import { buildGmContext } from "@/lib/context";
 import { rollDice, rollDiceTool, type RollDiceInput } from "@/lib/dice";
 import { getCampaign } from "@/lib/queries";
@@ -75,6 +75,13 @@ export async function POST(
 
   const campaign = await getCampaign(userId, id);
   if (!campaign) return notFound();
+
+  // Campagna conclusa: la storia è chiusa, niente nuovi turni.
+  if (campaign.concludedAt) {
+    return forbidden(
+      "La campagna è conclusa: riaprila dal dettaglio campagna per continuare a giocare.",
+    );
+  }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return badRequest("Messaggio mancante o vuoto");

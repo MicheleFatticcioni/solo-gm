@@ -71,6 +71,27 @@
       "when": 1784215911363,
       "tag": "0009_jittery_alex_power",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784411220910,
+      "tag": "0010_easy_mephistopheles",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784452624972,
+      "tag": "0011_abandoned_garia",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784454364431,
+      "tag": "0012_flaky_agent_zero",
+      "breakpoints": true
     }
   ]
 }

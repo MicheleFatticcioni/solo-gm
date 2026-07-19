@@ -12,6 +12,19 @@
       ],
       "port": 4200,
       "autoPort": true
+    },
+    {
+      "name": "dev-alt",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PATH=/Users/michelefatticcioni/.nvm/versions/node/v22.20.0/bin:/usr/bin:/bin",
+        "npx",
+        "next",
+        "dev",
+        "-p",
+        "4207"
+      ],
+      "port": 4207
     }
   ]
 }

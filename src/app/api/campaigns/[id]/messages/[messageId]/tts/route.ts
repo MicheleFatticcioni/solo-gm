@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/db";
 import { messages } from "@/db/schema";
-import { badRequest, notFound, parseId, unauthorized } from "@/lib/api";
+import { badRequest, forbidden, notFound, parseId, unauthorized } from "@/lib/api";
 import { getCampaign } from "@/lib/queries";
 import { getUserId } from "@/lib/session";
 import { AiConfigError, getAiSettings } from "@/lib/settings";
@@ -27,6 +27,11 @@ export async function GET(
 
   const campaign = await getCampaign(userId, id);
   if (!campaign) return notFound();
+
+  // Campagna conclusa: la lettura vocale è disattivata (come i tasti in UI).
+  if (campaign.concludedAt) {
+    return forbidden("La campagna è conclusa: la lettura vocale è disattivata.");
+  }
 
   const [message] = await db
     .select({ role: messages.role, content: messages.content })

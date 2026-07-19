@@ -99,10 +99,14 @@ export function Chat({
   campaignId,
   campaignName,
   ttsMode,
+  concluded,
 }: {
   campaignId: string;
   campaignName: string;
   ttsMode: TtsMode;
+  // Campagna conclusa: cronologia in sola lettura, niente composer né
+  // lettura vocale (i megafoni restano visibili ma disattivati).
+  concluded: boolean;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -451,6 +455,7 @@ export function Chat({
             speechStatus={
               speech?.messageId === message.id ? speech.status : null
             }
+            speechDisabled={concluded}
             onToggleSpeech={
               // il megafono compare solo sui messaggi del GM persistiti
               // (quelli locali/in streaming non hanno ancora un id reale)
@@ -473,13 +478,20 @@ export function Chat({
 
       {error && <p className="pb-2 text-sm text-red-400">{error}</p>}
 
-      <Composer
-        input={input}
-        setInput={setInput}
-        onSend={send}
-        disabled={streaming || loadingHistory}
-        textareaRef={textareaRef}
-      />
+      {concluded ? (
+        <p className="rounded border border-amber-800/50 bg-amber-950/20 px-4 py-3 text-sm text-amber-200">
+          Campagna conclusa: la storia è in sola lettura. Puoi riaprirla dal
+          dettaglio campagna, oppure creare il modulo PDF dell&apos;avventura.
+        </p>
+      ) : (
+        <Composer
+          input={input}
+          setInput={setInput}
+          onSend={send}
+          disabled={streaming || loadingHistory}
+          textareaRef={textareaRef}
+        />
+      )}
     </div>
   );
 }
@@ -487,10 +499,12 @@ export function Chat({
 function MessageBubble({
   message,
   speechStatus,
+  speechDisabled,
   onToggleSpeech,
 }: {
   message: ChatMessage;
   speechStatus: "loading" | "playing" | null;
+  speechDisabled: boolean;
   onToggleSpeech?: (messageId: string) => void;
 }) {
   if (message.role === "user") {
@@ -528,6 +542,7 @@ function MessageBubble({
       {onToggleSpeech && (
         <SpeakerButton
           status={speechStatus}
+          disabled={speechDisabled}
           onClick={() => onToggleSpeech(message.id)}
         />
       )}
@@ -535,26 +550,32 @@ function MessageBubble({
   );
 }
 
-// 📢 legge il messaggio ad alta voce (di nuovo per fermare la lettura)
+// 📢 legge il messaggio ad alta voce (di nuovo per fermare la lettura);
+// a campagna conclusa resta visibile ma disattivato.
 function SpeakerButton({
   status,
+  disabled,
   onClick,
 }: {
   status: "loading" | "playing" | null;
+  disabled: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       title={
-        status === "playing"
-          ? "Ferma la lettura"
-          : status === "loading"
-            ? "Preparazione dell'audio…"
-            : "Leggi ad alta voce"
+        disabled
+          ? "Campagna conclusa: lettura vocale disattivata"
+          : status === "playing"
+            ? "Ferma la lettura"
+            : status === "loading"
+              ? "Preparazione dell'audio…"
+              : "Leggi ad alta voce"
       }
-      className={`mt-1 rounded-full border px-2 py-1 text-sm ${
+      className={`mt-1 rounded-full border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
         status === "playing"
           ? "border-indigo-600 bg-indigo-950/50 text-indigo-300"
           : status === "loading"

@@ -136,6 +136,12 @@ export async function duplicateCampaign(userId: string, campaignId: string) {
         gameSystem: source.gameSystem,
         aiInstructions: source.aiInstructions,
         lastPlayedAt: source.lastPlayedAt,
+        concludedAt: source.concludedAt,
+        moduleMarkdown: source.moduleMarkdown,
+        moduleGeneratedAt: source.moduleGeneratedAt,
+        // Stato normalizzato: un "pending" copiato resterebbe orfano
+        // (il job in corso aggiorna solo la campagna originale).
+        moduleStatus: source.moduleMarkdown ? "ready" : null,
       })
       .returning();
 

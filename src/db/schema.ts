@@ -41,6 +41,14 @@ export const documentStatusEnum = pgEnum("document_status", [
 
 export const messageRoleEnum = pgEnum("message_role", ["user", "assistant"]);
 
+// Stato della generazione del modulo d'avventura (job generate-module):
+// null = mai richiesta, pending = job in coda o in corso.
+export const moduleStatusEnum = pgEnum("module_status", [
+  "pending",
+  "ready",
+  "error",
+]);
+
 export const wikiFolderEnum = pgEnum("wiki_folder", [
   "core",
   "pg",
@@ -191,6 +199,18 @@ export const campaigns = pgTable("campaigns", {
   wikiCoversUntilMessageId: uuid("wiki_covers_until_message_id").references(
     (): AnyPgColumn => messages.id,
   ),
+  // Campagna conclusa: la chat diventa in sola lettura (niente nuovi
+  // messaggi né lettura vocale) e si sblocca la creazione del modulo PDF.
+  // null = in corso.
+  concludedAt: timestamp("concluded_at", { withTimezone: true }),
+  // Modulo d'avventura generato dall'AI (markdown): si genera una volta
+  // sola e i download (PDF o .md) lo rileggono da qui; "rigenera" lo
+  // sovrascrive. La generazione avviene nel job generate-module del
+  // worker: status/error tengono la UI aggiornata durante e dopo.
+  moduleMarkdown: text("module_markdown"),
+  moduleGeneratedAt: timestamp("module_generated_at", { withTimezone: true }),
+  moduleStatus: moduleStatusEnum("module_status"),
+  moduleError: text("module_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
 });

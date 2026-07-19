@@ -118,6 +118,7 @@ function createOllamaLlm(settings: AiSettings): LlmClient {
       const toolCalls: OllamaToolCall[] = [];
       let inputTokens = 0;
       let outputTokens = 0;
+      let doneReason: string | null = null;
 
       try {
         const stream = await client.chat({
@@ -139,6 +140,7 @@ function createOllamaLlm(settings: AiSettings): LlmClient {
           if (chunk.done) {
             inputTokens = chunk.prompt_eval_count ?? 0;
             outputTokens = chunk.eval_count ?? 0;
+            doneReason = chunk.done_reason ?? null;
           }
         }
       } catch (error) {
@@ -159,9 +161,16 @@ function createOllamaLlm(settings: AiSettings): LlmClient {
         });
       }
 
+      // done_reason "length" = output troncato a num_predict: si mappa
+      // su "max_tokens" come per gli altri provider.
       return {
         content,
-        stopReason: toolCalls.length > 0 ? "tool_use" : "end_turn",
+        stopReason:
+          toolCalls.length > 0
+            ? "tool_use"
+            : doneReason === "length"
+              ? "max_tokens"
+              : "end_turn",
         usage: { inputTokens, outputTokens },
       };
     },
@@ -250,9 +259,20 @@ function createDeepseekLlm(settings: AiSettings): LlmClient {
         });
       }
 
+      // finish_reason OpenAI → stop_reason Anthropic: "length" (output
+      // troncato al limite) diventa "max_tokens", così i chiamanti che
+      // spezzano l'output in più chiamate (modulo campagna) funzionano
+      // con qualunque provider.
+      const mappedStop =
+        stopReason === "tool_calls"
+          ? "tool_use"
+          : stopReason === "length"
+            ? "max_tokens"
+            : "end_turn";
+
       return {
         content,
-        stopReason: stopReason === "tool_calls" ? "tool_use" : "end_turn",
+        stopReason: mappedStop,
         usage: { inputTokens, outputTokens },
       };
     },

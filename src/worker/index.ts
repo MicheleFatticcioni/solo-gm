@@ -2,13 +2,17 @@ import "dotenv/config";
 import { PgBoss } from "pg-boss";
 
 import {
+  GENERATE_MODULE_QUEUE,
+  GENERATE_MODULE_QUEUE_OPTIONS,
   PROCESS_PDF_QUEUE,
   PROCESS_PDF_QUEUE_OPTIONS,
   UPDATE_WIKI_QUEUE,
   UPDATE_WIKI_QUEUE_OPTIONS,
+  type GenerateModuleJobData,
   type ProcessPdfJobData,
   type UpdateWikiJobData,
 } from "../lib/queue";
+import { generateModule } from "./jobs/generate-module";
 import { processPdf } from "./jobs/process-pdf";
 import { updateWiki } from "./jobs/update-wiki";
 
@@ -25,6 +29,7 @@ async function main() {
   await boss.start();
   await boss.createQueue(PROCESS_PDF_QUEUE, PROCESS_PDF_QUEUE_OPTIONS);
   await boss.createQueue(UPDATE_WIKI_QUEUE, UPDATE_WIKI_QUEUE_OPTIONS);
+  await boss.createQueue(GENERATE_MODULE_QUEUE, GENERATE_MODULE_QUEUE_OPTIONS);
 
   await boss.work<ProcessPdfJobData>(
     PROCESS_PDF_QUEUE,
@@ -41,6 +46,13 @@ async function main() {
     for (const job of jobs) {
       console.log(`update-wiki: avvio campagna ${job.data.campaignId}`);
       await updateWiki(job.data.campaignId);
+    }
+  });
+
+  await boss.work<GenerateModuleJobData>(GENERATE_MODULE_QUEUE, async (jobs) => {
+    for (const job of jobs) {
+      console.log(`generate-module: avvio campagna ${job.data.campaignId}`);
+      await generateModule(job.data.campaignId);
     }
   });
 

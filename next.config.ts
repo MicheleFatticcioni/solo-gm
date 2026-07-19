@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // pdfkit legge i font AFM built-in da file con require/fs: bundlato
+  // da Next perderebbe quei data file, quindi resta un require nativo.
+  serverExternalPackages: ["pdfkit"],
   turbopack: {
     // C'è un package-lock.json vagante in ~ che confonde l'inferenza della root
     root: __dirname,
